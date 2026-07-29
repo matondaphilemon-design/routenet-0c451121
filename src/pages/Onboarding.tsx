@@ -238,7 +238,7 @@ function ArtistSearch({ onPick }: { onPick: (a: ArtistPick) => void }) {
     if (term.length < 2) { setResults([]); return; }
     setLoading(true);
     const handle = setTimeout(async () => {
-      const res = await deezer<any>("searchArtist", { query: term, limit: 6 });
+      const res = await deezer<any>("searchArtist", { name: term, limit: 6 });
       const list = (res?.data || [])
         .map((a: any, i: number) => toArtistPick(a, i))
         .filter(Boolean) as ArtistPick[];

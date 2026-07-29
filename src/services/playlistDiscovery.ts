@@ -33,14 +33,14 @@ export interface PlaylistCandidate {
   uploader: string;
   videos: number;
   thumbnail: string;
-  source: "piped" | "deezer";
+  source: "deezer";
   score: number;
 }
 
 export interface DiscoveredPlaylist {
   id: string;
   title: string;
-  source: "piped" | "deezer";
+  source: "deezer";
   tracks: Track[];
 }
 
@@ -184,8 +184,6 @@ export function buildQueries(p: SongProfile): string[] {
 /* 3. Candidate search (Deezer playlists only)                         */
 /* ------------------------------------------------------------------ */
 
-const searchCache = new Map<string, PlaylistCandidate[]>();
-
 async function deezerPlaylistSearch(q: string, limit = 8): Promise<PlaylistCandidate[]> {
   try {
     const d = await dz("searchPlaylist", { query: q, limit });
@@ -269,68 +267,8 @@ function scoreCandidate(c: PlaylistCandidate, p: SongProfile, recentlyUsed: stri
 }
 
 /* ------------------------------------------------------------------ */
-/* 5. Track resolution + metadata enrichment                           */
+/* 5. Track resolution                                                  */
 /* ------------------------------------------------------------------ */
-
-function cleanTitle(raw: string): { title: string; artist?: string } {
-  let t = raw
-    .replace(/\((?:official\s*)?(?:music\s*)?video\)/gi, "")
-    .replace(/\[(?:official\s*)?(?:music\s*)?video\]/gi, "")
-    .replace(/\b(official audio|official video|lyrics?|visualizer|hd|4k)\b/gi, "")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-  const dash = t.split(/\s+[-–—]\s+/);
-  if (dash.length >= 2) return { artist: dash[0].trim(), title: dash.slice(1).join(" - ").trim() };
-  return { title: t };
-}
-
-const metaCache = new Map<string, Track | null>();
-
-/** Enrich a Piped item with Deezer metadata; fall back to Piped data. */
-async function enrich(item: { videoId: string; title: string; artist: string; thumbnail: string; duration: number }): Promise<Track> {
-  const parsed = cleanTitle(item.title);
-  const artist = parsed.artist || item.artist || "Unknown Artist";
-  const title = parsed.title || item.title;
-  const key = `${artist}|${title}`.toLowerCase();
-
-  let deezer = metaCache.get(key);
-  if (deezer === undefined) {
-    deezer = null;
-    try {
-      const d = await dz("searchTrack", { query: `${artist} ${title}`, limit: 1 });
-      const hit = d?.data?.[0];
-      if (hit) {
-        deezer = {
-          id: `deezer-${hit.id}`,
-          title: toTitleCase(hit.title || title),
-          artist: toTitleCase(hit.artist?.name || artist),
-          album: hit.album?.title || "",
-          artwork: hit.album?.cover_big || hit.album?.cover_medium || "",
-          duration: hit.duration || item.duration || 0,
-          preview: hit.preview,
-        } as Track;
-      }
-    } catch { /* Deezer down — Piped fallback below */ }
-    metaCache.set(key, deezer);
-  }
-
-  if (deezer) return { ...deezer, youtubeId: item.videoId };
-
-  // Piped fallback — never leave artwork/metadata blank.
-  return {
-    id: `yt-${item.videoId}`,
-    title: toTitleCase(title),
-    artist: toTitleCase(artist),
-    album: "",
-    artwork: item.thumbnail || `https://i.ytimg.com/vi/${item.videoId}/hqdefault.jpg`,
-    duration: item.duration || 0,
-    youtubeId: item.videoId,
-  };
-}
-
-async function fetchPipedPlaylistTracks(id: string, limit: number): Promise<Track[]> {
-  return [];
-}
 
 async function fetchDeezerPlaylistTracks(id: string, limit: number): Promise<Track[]> {
   try {
