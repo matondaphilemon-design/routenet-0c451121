@@ -1,0 +1,1 @@
+ALTER TABLE public.onboarding_preferences ADD COLUMN IF NOT EXISTS subgenres text[] DEFAULT '{}'::text[];
