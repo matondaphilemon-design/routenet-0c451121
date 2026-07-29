@@ -15,7 +15,7 @@
  *      Deezer and falling back to Piped title/artist/thumbnail.
  */
 import { supabase } from "@/integrations/supabase/client";
-import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "@/integrations/supabase/client";
+import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "@/integrations/supabase/config";
 import type { Track } from "@/data/mockData";
 import { toTitleCase } from "@/utils/toTitleCase";
 
