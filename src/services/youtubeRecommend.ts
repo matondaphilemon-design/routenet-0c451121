@@ -1,4 +1,4 @@
-import { supabase } from "@/integrations/supabase/client";
+import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "@/integrations/supabase/client";
 
 export interface YouTubeTrack {
   videoId: string;
@@ -12,9 +12,8 @@ const cache = new Map<string, YouTubeTrack[]>();
 async function call(qs: string): Promise<YouTubeTrack[]> {
   if (cache.has(qs)) return cache.get(qs)!;
   try {
-    const projectRef = (import.meta as any).env?.VITE_SUPABASE_PROJECT_ID || "sfxzqctoispfbtatkgnr";
-    const url = `https://${projectRef}.supabase.co/functions/v1/youtube-recommend?${qs}`;
-    const res = await fetch(url);
+    const url = `${SUPABASE_URL}/functions/v1/youtube-recommend?${qs}`;
+    const res = await fetch(url, { headers: { apikey: SUPABASE_PUBLISHABLE_KEY } });
     if (!res.ok) return [];
     const j = await res.json();
     const tracks: YouTubeTrack[] = j?.tracks ?? [];
