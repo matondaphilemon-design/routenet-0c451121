@@ -157,56 +157,24 @@ class QueueManager {
     return filtered;
   }
 
-  /** Build a large candidate pool from multiple sources. */
-  private async buildCandidatePool(seed: Track, seedId: string | null): Promise<Track[]> {
+  /**
+   * Build a candidate pool from the ONE recommendation source we trust:
+   * the playlist-discovery pipeline (Piped/YouTube first, Deezer second).
+   * A fresh search runs on every call, so the same seed never keeps the
+   * same pool — and there are no generic chart/artist-top-track fallbacks
+   * that could collapse into a single repeated default playlist.
+   */
+  private async buildCandidatePool(seed: Track, _seedId: string | null): Promise<Track[]> {
     const seenIds = new Set<string>([seed.id]);
-    const push = (arr: Track[], into: Track[]) => {
-      for (const t of arr) {
-        if (!t?.id || seenIds.has(t.id)) continue;
-        seenIds.add(t.id);
-        into.push(t);
-      }
-    };
     const pool: Track[] = [];
-
-    // 1) PRIMARY: a freshly discovered, genre/style-matched playlist
-    //    (Piped/YouTube first, Deezer second). Re-searched on every play, so
-    //    a song is never permanently tied to one playlist.
     try {
       const discovered = await discoverPlaylistForTrack(seed, 40);
-      if (discovered?.tracks?.length) push(discovered.tracks, pool);
-    } catch { /* skip */ }
-
-    // 2) Artist / track radio.
-    if (seedId) {
-      try {
-        const { data } = await supabase.functions.invoke("deezer", {
-          body: { action: "getTrackRadio", params: { trackId: seedId, limit: 40 } },
-        });
-        push((data?.data || []).map(mapDeezerToTrack), pool);
-      } catch { /* skip */ }
-    }
-
-    // 3) Artist top tracks fallback (searchTrack biased by artist).
-    if (pool.length < INITIAL_RADIO_FETCH) {
-      try {
-        const { data } = await supabase.functions.invoke("deezer", {
-          body: { action: "searchTrack", params: { query: seed.artist, limit: 25 } },
-        });
-        push((data?.data || []).map(mapDeezerToTrack), pool);
-      } catch { /* skip */ }
-    }
-
-    // 4) Global chart trending fill.
-    if (pool.length < INITIAL_RADIO_FETCH) {
-      try {
-        const { data } = await supabase.functions.invoke("deezer", {
-          body: { action: "getChart", params: { type: "tracks", limit: 40 } },
-        });
-        const arr = data?.tracks?.data || data?.data || [];
-        push(arr.map(mapDeezerToTrack), pool);
-      } catch { /* skip */ }
-    }
+      for (const t of discovered?.tracks || []) {
+        if (!t?.id || seenIds.has(t.id)) continue;
+        seenIds.add(t.id);
+        pool.push(t);
+      }
+    } catch { /* discovery failed — return whatever we have, no generic fallback */ }
     return pool;
   }
 
