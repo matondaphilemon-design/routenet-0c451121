@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable";
-import { topTracksForGenre } from "@/services/youtubeRecommend";
 import { toast } from "sonner";
 
 type Step =
@@ -102,6 +101,25 @@ const MOODS = [
   { name: "Happy", gradient: "from-secondary/80 to-background" },
 ];
 
+const TOP_ARTISTS_BY_GENRE: Record<string, string[]> = {
+  "Hip-Hop": ["Drake", "Kendrick Lamar", "Nicki Minaj", "Travis Scott", "J. Cole", "Lil Wayne", "Future", "21 Savage"],
+  "Pop": ["Taylor Swift", "Ariana Grande", "The Weeknd", "Dua Lipa", "Billie Eilish", "Olivia Rodrigo", "Sabrina Carpenter", "Harry Styles"],
+  "R&B": ["SZA", "Usher", "Brent Faiyaz", "Summer Walker", "Chris Brown", "Giveon", "H.E.R.", "Frank Ocean"],
+  "Rock": ["Queen", "Foo Fighters", "Nirvana", "Arctic Monkeys", "The Killers", "Linkin Park", "Red Hot Chili Peppers", "Paramore"],
+  "Electronic": ["Calvin Harris", "David Guetta", "Fred again..", "Disclosure", "Avicii", "Martin Garrix", "Skrillex", "Swedish House Mafia"],
+  "Afrobeats": ["Burna Boy", "Wizkid", "Davido", "Rema", "Tems", "Asake", "Ayra Starr", "Omah Lay"],
+  "Indie": ["Tame Impala", "Lana Del Rey", "Clairo", "Phoebe Bridgers", "The 1975", "Vampire Weekend", "Mitski", "Mac DeMarco"],
+  "Jazz": ["Miles Davis", "John Coltrane", "Ella Fitzgerald", "Nina Simone", "Louis Armstrong", "Herbie Hancock", "Kamasi Washington", "Norah Jones"],
+  "Classical": ["Ludovico Einaudi", "Yo-Yo Ma", "Lang Lang", "Max Richter", "Hans Zimmer", "Beethoven", "Mozart", "Chopin"],
+  "Country": ["Morgan Wallen", "Luke Combs", "Zach Bryan", "Lainey Wilson", "Chris Stapleton", "Kacey Musgraves", "Dolly Parton", "Shania Twain"],
+  "Reggae": ["Bob Marley & The Wailers", "Sean Paul", "Damian Marley", "Shaggy", "Chronixx", "Protoje", "Koffee", "Buju Banton"],
+  "Metal": ["Metallica", "Slipknot", "System Of A Down", "Bring Me The Horizon", "Iron Maiden", "Black Sabbath", "Deftones", "Avenged Sevenfold"],
+  "Latin": ["Bad Bunny", "Karol G", "J Balvin", "Shakira", "Feid", "Rauw Alejandro", "Peso Pluma", "Maluma"],
+  "K-Pop": ["BTS", "BLACKPINK", "NewJeans", "Stray Kids", "TWICE", "SEVENTEEN", "IVE", "LE SSERAFIM"],
+  "Lo-fi": ["Nujabes", "Jinsang", "idealism", "potsu", "j^p^n", "bsd.u", "Kupla", "Tomppabeats"],
+  "Gospel": ["Kirk Franklin", "Tasha Cobbs Leonard", "Maverick City Music", "CeCe Winans", "Elevation Worship", "Mary Mary", "Fred Hammond", "Jonathan McReynolds"],
+};
+
 function saveOnboarding(data: any) {
   try {
     const existing = JSON.parse(localStorage.getItem("onboarding") || "{}");
@@ -178,6 +196,17 @@ async function fetchRelatedArtists(artistId: number, limit = 8): Promise<ArtistP
   const data = await deezer<any>("getArtistRelated", { artistId, limit });
   const list: any[] = data?.data || [];
   return list.map((a, i) => toArtistPick(a, i)).filter(Boolean) as ArtistPick[];
+}
+
+async function resolveKnownArtists(names: string[], limit = 16): Promise<ArtistPick[]> {
+  const lists = await Promise.all(
+    names.slice(0, limit).map(async (name) => {
+      const res = await deezer<any>("searchArtist", { name, limit: 1 });
+      const artist = res?.data?.[0];
+      return artist ? toArtistPick(artist) : null;
+    }),
+  );
+  return lists.filter(Boolean) as ArtistPick[];
 }
 
 function ProgressDots({ index, total }: { index: number; total: number }) {
@@ -279,35 +308,26 @@ export default function Onboarding() {
     setLoadingArtists(true);
     setArtistsError(false);
     try {
-      // 1. Sub-genres first (more specific)
+      // 1. Recognizable top artists first so onboarding immediately feels relevant.
+      const seedNames = Array.from(new Set(selectedGenres.flatMap((g) => TOP_ARTISTS_BY_GENRE[g.name] || [])));
+      const knownArtists = await resolveKnownArtists(seedNames, 28);
+
+      // 2. Sub-genres (more specific)
       const subgenreLists = await Promise.all(
         selectedSubgenres.slice(0, 4).map((sg) => fetchArtistsForStyle(sg, 8)),
       );
-      // 2. Genres
+
+      // 3. Genres from Deezer playlist tracks.
       const genreLists = await Promise.all(
         selectedGenres.slice(0, 4).map((g) => fetchArtistsForStyle(g.name, 10)),
       );
-      // 3. YouTube — top tracks per genre → seed artists by channel name (resolved via Deezer search)
-      const ytPerGenre = await Promise.all(
-        selectedGenres.slice(0, 3).map((g) => topTracksForGenre(g.name, 6)),
-      );
-      const ytArtistNames = Array.from(
-        new Set(
-          ytPerGenre
-            .flat()
-            .map((t) => t.channel.replace(/\s*-?\s*Topic$/i, "").trim())
-            .filter(Boolean),
-        ),
-      ).slice(0, 8);
-      const ytLists = await Promise.all(
-        ytArtistNames.map(async (name) => {
-          const res = await deezer<any>("searchArtist", { query: name, limit: 1 });
-          const a = res?.data?.[0];
-          return a ? [toArtistPick(a)!].filter(Boolean) : [];
-        }),
+
+      // 4. Similar artists from the recognizable seeds.
+      const relatedLists = await Promise.all(
+        knownArtists.slice(0, 4).map((a) => fetchRelatedArtists(a.id, 6)),
       );
 
-      const buckets = [...subgenreLists, ...genreLists, ...ytLists].filter((l) => l.length > 0);
+      const buckets = [knownArtists, ...subgenreLists, ...genreLists, ...relatedLists].filter((l) => l.length > 0);
       const results: ArtistPick[] = [];
       const seen = new Set<string>();
       const banned = new Set(

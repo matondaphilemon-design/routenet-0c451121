@@ -98,9 +98,11 @@ serve(async (req) => {
     let url: string;
 
     switch (action) {
-      case "searchArtist":
-        url = `${DEEZER_API}/search/artist?q=${encodeURIComponent(params.name)}&limit=${params.limit || 10}`;
+      case "searchArtist": {
+        const name = params.name || params.query || "";
+        url = `${DEEZER_API}/search/artist?q=${encodeURIComponent(name)}&limit=${params.limit || 10}`;
         break;
+      }
       case "searchTrack":
         url = `${DEEZER_API}/search/track?q=${encodeURIComponent(params.query)}&limit=${params.limit || 10}`;
         break;

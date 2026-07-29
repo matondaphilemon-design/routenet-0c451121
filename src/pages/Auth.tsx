@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { AppLogo } from "@/components/brand/AppLogo";
+import { lovable } from "@/integrations/lovable";
 
 export default function Auth() {
   const navigate = useNavigate();
@@ -16,6 +17,22 @@ export default function Auth() {
   const [displayName, setDisplayName] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+
+  const handleGoogle = async () => {
+    setLoading(true);
+    try {
+      const result = await lovable.auth.signInWithOAuth("google", {
+        redirect_uri: window.location.origin,
+      });
+      if (result.error) throw result.error;
+      localStorage.removeItem("routenet-guest");
+      navigate(localStorage.getItem("routenet-onboarded") === "true" ? "/home" : "/onboarding");
+    } catch (err: any) {
+      toast.error(err?.message || "Google sign-in failed");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,6 +89,24 @@ export default function Auth() {
           <p className="text-xs font-medium text-muted-foreground">
             {isSignUp ? "Create your account with email" : "Sign in with your email"}
           </p>
+        </div>
+
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={handleGoogle}
+          disabled={loading}
+          className="mb-2.5 h-10 w-full justify-center gap-2 rounded-lg border-border bg-background-card text-[13px] font-semibold"
+        >
+          {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          Continue with Google
+        </Button>
+
+        <div className="my-4 flex items-center gap-3">
+          <span className="h-px flex-1 bg-border" />
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">or email</span>
+          <span className="h-px flex-1 bg-border" />
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-2.5">
