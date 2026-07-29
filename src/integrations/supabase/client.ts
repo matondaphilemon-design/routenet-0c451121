@@ -4,8 +4,8 @@ import type { Database } from './types';
 
 // Pinned to the repository's own Supabase project so the existing edge
 // functions (deezer, youtube, lyrics, ai-*) and data keep working after import.
-const SUPABASE_URL = "https://hsjntwgoyhljnvlfgjkd.supabase.co";
-const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_6GtIbJ9LIgJdPs383PO0qA_nTtw3Nf_";
+export const SUPABASE_URL = "https://hsjntwgoyhljnvlfgjkd.supabase.co";
+export const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_6GtIbJ9LIgJdPs383PO0qA_nTtw3Nf_";
 
 
 function isNewSupabaseApiKey(value: string): boolean {
