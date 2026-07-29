@@ -1,4 +1,4 @@
-import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "@/integrations/supabase/client";
+import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "@/integrations/supabase/config";
 /**
  * Download service — fetches real audio via the `download-audio` edge function
  * (server-side proxy that bypasses CORS) and saves the blob to IndexedDB.
