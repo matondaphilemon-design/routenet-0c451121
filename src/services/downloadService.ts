@@ -1,3 +1,4 @@
+import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "@/integrations/supabase/client";
 /**
  * Download service — fetches real audio via the `download-audio` edge function
  * (server-side proxy that bypasses CORS) and saves the blob to IndexedDB.
@@ -56,8 +57,7 @@ async function downloadViaEdge(
   videoId: string,
   onProgress?: (percent: number) => void
 ): Promise<Blob> {
-  const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
-  const ANON = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
+  const ANON = SUPABASE_PUBLISHABLE_KEY;
   // Use the existing `youtube` edge function which has full fallback chain
   // (Piped → Invidious → Cobalt → Innertube)
   const url = `${SUPABASE_URL}/functions/v1/youtube`;
