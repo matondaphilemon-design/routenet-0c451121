@@ -8,11 +8,13 @@ export interface YouTubeTrack {
 }
 
 const cache = new Map<string, YouTubeTrack[]>();
+const FUNCTION_NAME = "youtube-recommend";
 
 async function call(qs: string): Promise<YouTubeTrack[]> {
-  if (cache.has(qs)) return cache.get(qs)!;
+  const cached = cache.get(qs);
+  if (cached) return cached;
   try {
-    const url = `${SUPABASE_URL}/functions/v1/youtube-recommend?${qs}`;
+    const url = `${SUPABASE_URL}/functions/v1/${FUNCTION_NAME}?${qs}`;
     const res = await fetch(url, { headers: { apikey: SUPABASE_PUBLISHABLE_KEY } });
     if (!res.ok) return [];
     const j = await res.json();
