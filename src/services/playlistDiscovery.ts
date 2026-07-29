@@ -6,8 +6,8 @@
  *      artist/album genre data plus a keyword classifier.
  *   2. Builds a set of *style-based* playlist queries (never a single fixed
  *      query per song).
- *   3. Searches Piped (YouTube) as the PRIMARY playlist source, Deezer as a
- *      secondary source.
+ *   3. Searches Deezer playlists only — no generic chart, artist-top, Piped,
+ *      or YouTube fallback is allowed in the playback recommendation path.
  *   4. Scores every candidate playlist (editorial/official signals, size,
  *      genre match, artist-diversity, anti-repeat rotation) and picks one of
  *      the best matches — a *different* one each time the same song is played.
@@ -15,7 +15,6 @@
  *      Deezer and falling back to Piped title/artist/thumbnail.
  */
 import { supabase } from "@/integrations/supabase/client";
-import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "@/integrations/supabase/config";
 import type { Track } from "@/data/mockData";
 import { toTitleCase } from "@/utils/toTitleCase";
 
@@ -34,14 +33,14 @@ export interface PlaylistCandidate {
   uploader: string;
   videos: number;
   thumbnail: string;
-  source: "piped" | "deezer";
+  source: "deezer";
   score: number;
 }
 
 export interface DiscoveredPlaylist {
   id: string;
   title: string;
-  source: "piped" | "deezer";
+  source: "deezer";
   tracks: Track[];
 }
 
@@ -128,7 +127,7 @@ export async function analyseSong(seed: Track): Promise<SongProfile> {
   let subgenre: string | undefined;
 
   try {
-    const search = await dz("searchArtist", { query: seed.artist, limit: 1 });
+    const search = await dz("searchArtist", { name: seed.artist, limit: 1 });
     const artistId = search?.data?.[0]?.id;
     if (artistId) {
       const albums = await dz("getArtistAlbums", { artistId, limit: 3 });
@@ -169,54 +168,23 @@ export function buildQueries(p: SongProfile): string[] {
   const styles = p.style.slice(0, 5);
   const base = [
     ...styles.map((s) => `${s} playlist`),
-    ...styles.slice(0, 2).map((s) => `best ${s} ${YEAR} playlist`),
-    `${p.genre} top hits playlist`,
+    ...styles.map((s) => `${s} mix`),
+    ...styles.slice(0, 2).map((s) => `best ${s} ${YEAR}`),
+    `${p.genre} top hits`,
     `${p.genre} mix ${YEAR}`,
     p.subgenre ? `${p.subgenre} playlist` : "",
-    `${p.artist} type playlist ${p.genre}`,
-    `artists like ${p.artist} playlist`,
-    p.mood ? `${p.mood} ${p.genre} playlist` : "",
+    `${p.artist} radio ${p.genre}`,
+    `artists like ${p.artist}`,
+    p.mood ? `${p.mood} ${p.genre}` : "",
   ].filter(Boolean) as string[];
   return Array.from(new Set(base));
 }
 
 /* ------------------------------------------------------------------ */
-/* 3. Candidate search (Piped primary, Deezer secondary)               */
+/* 3. Candidate search (Deezer playlists only)                         */
 /* ------------------------------------------------------------------ */
 
-const searchCache = new Map<string, PlaylistCandidate[]>();
-
-async function pipedPlaylistSearch(q: string, limit = 12): Promise<PlaylistCandidate[]> {
-  const cacheKey = `piped:${q}:${limit}`;
-  const hit = searchCache.get(cacheKey);
-  if (hit) return hit;
-  try {
-    const res = await fetch(
-      `${SUPABASE_URL}/functions/v1/piped-playlists?q=${encodeURIComponent(q)}&limit=${limit}`,
-      { headers: { apikey: SUPABASE_PUBLISHABLE_KEY } },
-    );
-    if (!res.ok) return [];
-    const j = await res.json();
-    const out: PlaylistCandidate[] = (j?.playlists || []).map((p: any) => ({
-      id: String(p.id),
-      title: p.title || "",
-      uploader: p.uploader || "",
-      videos: Number(p.videos) || 0,
-      thumbnail: p.thumbnail || "",
-      source: "piped" as const,
-      score: 0,
-    })).filter((p: PlaylistCandidate) => p.id);
-    searchCache.set(cacheKey, out);
-    return out;
-  } catch {
-    return [];
-  }
-}
-
 async function deezerPlaylistSearch(q: string, limit = 8): Promise<PlaylistCandidate[]> {
-  const cacheKey = `dz:${q}:${limit}`;
-  const hit = searchCache.get(cacheKey);
-  if (hit) return hit;
   try {
     const d = await dz("searchPlaylist", { query: q, limit });
     const out: PlaylistCandidate[] = (d?.data || []).map((p: any) => ({
@@ -228,7 +196,6 @@ async function deezerPlaylistSearch(q: string, limit = 8): Promise<PlaylistCandi
       source: "deezer" as const,
       score: 0,
     })).filter((p: PlaylistCandidate) => p.id);
-    searchCache.set(cacheKey, out);
     return out;
   } catch {
     return [];
@@ -294,89 +261,14 @@ function scoreCandidate(c: PlaylistCandidate, p: SongProfile, recentlyUsed: stri
   const idx = recentlyUsed.indexOf(c.id);
   if (idx >= 0) score -= 60 - idx * 4;
 
-  // deezer is secondary
-  if (c.source === "deezer") score -= 6;
-
   // freshness jitter so equally-good playlists rotate
-  score += Math.random() * 12;
+  score += Math.random() * 24;
   return score;
 }
 
 /* ------------------------------------------------------------------ */
-/* 5. Track resolution + metadata enrichment                           */
+/* 5. Track resolution                                                  */
 /* ------------------------------------------------------------------ */
-
-function cleanTitle(raw: string): { title: string; artist?: string } {
-  let t = raw
-    .replace(/\((?:official\s*)?(?:music\s*)?video\)/gi, "")
-    .replace(/\[(?:official\s*)?(?:music\s*)?video\]/gi, "")
-    .replace(/\b(official audio|official video|lyrics?|visualizer|hd|4k)\b/gi, "")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-  const dash = t.split(/\s+[-–—]\s+/);
-  if (dash.length >= 2) return { artist: dash[0].trim(), title: dash.slice(1).join(" - ").trim() };
-  return { title: t };
-}
-
-const metaCache = new Map<string, Track | null>();
-
-/** Enrich a Piped item with Deezer metadata; fall back to Piped data. */
-async function enrich(item: { videoId: string; title: string; artist: string; thumbnail: string; duration: number }): Promise<Track> {
-  const parsed = cleanTitle(item.title);
-  const artist = parsed.artist || item.artist || "Unknown Artist";
-  const title = parsed.title || item.title;
-  const key = `${artist}|${title}`.toLowerCase();
-
-  let deezer = metaCache.get(key);
-  if (deezer === undefined) {
-    deezer = null;
-    try {
-      const d = await dz("searchTrack", { query: `${artist} ${title}`, limit: 1 });
-      const hit = d?.data?.[0];
-      if (hit) {
-        deezer = {
-          id: `deezer-${hit.id}`,
-          title: toTitleCase(hit.title || title),
-          artist: toTitleCase(hit.artist?.name || artist),
-          album: hit.album?.title || "",
-          artwork: hit.album?.cover_big || hit.album?.cover_medium || "",
-          duration: hit.duration || item.duration || 0,
-          preview: hit.preview,
-        } as Track;
-      }
-    } catch { /* Deezer down — Piped fallback below */ }
-    metaCache.set(key, deezer);
-  }
-
-  if (deezer) return { ...deezer, youtubeId: item.videoId };
-
-  // Piped fallback — never leave artwork/metadata blank.
-  return {
-    id: `yt-${item.videoId}`,
-    title: toTitleCase(title),
-    artist: toTitleCase(artist),
-    album: "",
-    artwork: item.thumbnail || `https://i.ytimg.com/vi/${item.videoId}/hqdefault.jpg`,
-    duration: item.duration || 0,
-    youtubeId: item.videoId,
-  };
-}
-
-async function fetchPipedPlaylistTracks(id: string, limit: number): Promise<Track[]> {
-  try {
-    const res = await fetch(
-      `${SUPABASE_URL}/functions/v1/piped-playlists?playlistId=${encodeURIComponent(id)}&limit=${limit}`,
-      { headers: { apikey: SUPABASE_PUBLISHABLE_KEY } },
-    );
-    if (!res.ok) return [];
-    const j = await res.json();
-    const items: any[] = j?.tracks || [];
-    const enriched = await Promise.all(items.slice(0, limit).map((i) => enrich(i).catch(() => null)));
-    return enriched.filter(Boolean) as Track[];
-  } catch {
-    return [];
-  }
-}
 
 async function fetchDeezerPlaylistTracks(id: string, limit: number): Promise<Track[]> {
   try {
@@ -417,18 +309,16 @@ export async function findMatchingPlaylists(seed: Track): Promise<{ profile: Son
   const seedKey = `${seed.artist}`.toLowerCase();
   const recentlyUsed = loadRotation()[seedKey] || [];
 
-  // Rotate which queries we run first so results differ between plays.
+  // Rotate which Deezer queries we run first so results differ between plays.
   const shuffled = queries.slice().sort(() => Math.random() - 0.5);
-  const pipedQueries = shuffled.slice(0, 3);
-  const deezerQueries = shuffled.slice(0, 2);
+  const deezerQueries = shuffled.slice(0, 5);
 
-  const [pipedResults, deezerResults] = await Promise.all([
-    Promise.all(pipedQueries.map((q) => pipedPlaylistSearch(q, 12))),
-    Promise.all(deezerQueries.map((q) => deezerPlaylistSearch(q, 8))),
-  ]);
+  const deezerResults = await Promise.all(
+    deezerQueries.map((q) => deezerPlaylistSearch(q, 12)),
+  );
 
   const byId = new Map<string, PlaylistCandidate>();
-  for (const c of [...pipedResults.flat(), ...deezerResults.flat()]) {
+  for (const c of deezerResults.flat()) {
     if (!byId.has(`${c.source}:${c.id}`)) byId.set(`${c.source}:${c.id}`, c);
   }
 
@@ -450,11 +340,9 @@ export async function discoverPlaylistForTrack(seed: Track, limit = 40): Promise
 
   const seedKey = `${seed.artist}`.toLowerCase();
 
-  // Try the top candidates until one yields a diverse, playable tracklist.
-  for (const candidate of candidates.slice(0, 5)) {
-    const tracks = candidate.source === "piped"
-      ? await fetchPipedPlaylistTracks(candidate.id, limit)
-      : await fetchDeezerPlaylistTracks(candidate.id, limit);
+  // Try a wider top window so repeated taps rotate through fresh Deezer lists.
+  for (const candidate of candidates.slice(0, 12).sort(() => Math.random() - 0.5)) {
+    const tracks = await fetchDeezerPlaylistTracks(candidate.id, limit);
 
     if (tracks.length < 8) continue;
     if (artistDiversity(tracks) < 0.45) continue; // too artist-dominated
@@ -464,10 +352,8 @@ export async function discoverPlaylistForTrack(seed: Track, limit = 40): Promise
   }
 
   // Relaxed second pass — accept the best playable list we found.
-  for (const candidate of candidates.slice(0, 8)) {
-    const tracks = candidate.source === "piped"
-      ? await fetchPipedPlaylistTracks(candidate.id, limit)
-      : await fetchDeezerPlaylistTracks(candidate.id, limit);
+  for (const candidate of candidates.slice(0, 16).sort(() => Math.random() - 0.5)) {
+    const tracks = await fetchDeezerPlaylistTracks(candidate.id, limit);
     if (tracks.length >= 5) {
       rememberUsed(seedKey, candidate.id);
       return { id: candidate.id, title: candidate.title, source: candidate.source, tracks };

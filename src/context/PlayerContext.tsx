@@ -150,10 +150,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       recordListen(track);
       queueManager.recordPlayed(track);
       setState((prev) => {
-        // If track is not in current queue, treat as a new single-song play
-        const inQueue = prev.queue.some(t => t.id === track.id);
-        const newQueue = inQueue ? prev.queue : [track];
-        if (!inQueue) buildRecommendations(track);
+        // Any explicit song selection starts a fresh Deezer playlist discovery.
+        buildRecommendations(track);
         return {
           ...prev,
           currentTrack: track,
@@ -161,7 +159,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           isPlaying: true,
           progress: 0,
           isVideoMode: false,
-          queue: newQueue,
+          queue: [track],
         };
       });
     } else {
