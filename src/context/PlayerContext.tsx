@@ -4,7 +4,23 @@ import { unlockMediaPlayback } from "@/lib/mediaUnlock";
 import { enforceQueueRules, queueManager } from "@/services/queueManager";
 import { maybeRefillRadioQueue, seedRadioQueue } from "@/services/radioQueue";
 import { recordListen } from "@/hooks/useListeningHistory";
-import { discoverPlaylist, buildQueueFromPlaylist } from "@/services/playlistPipeline";
+import { discoverPlaylistForTrack } from "@/services/playlistDiscovery";
+
+/**
+ * Build a playback queue from a freshly discovered playlist.
+ * Seed track first, followed by the playlist's other tracks (minus the
+ * seed itself and any tracks the caller wants excluded).
+ */
+function buildQueueFromDiscovery(seed: Track, tracks: Track[], exclude: Set<string>): Track[] {
+  const out: Track[] = [seed];
+  const seen = new Set<string>([seed.id]);
+  for (const t of tracks) {
+    if (!t?.id || seen.has(t.id) || exclude.has(t.id)) continue;
+    seen.add(t.id);
+    out.push(t);
+  }
+  return out;
+}
 
 export interface VideoContent {
   id: string;
@@ -94,12 +110,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const buildRecommendations = useCallback((track: Track, sourceList?: Track[]) => {
     const token = ++discoveryToken.current;
     const exclude = new Set((sourceList || []).map((t) => t.id).filter((id) => id !== track.id));
-    discoverPlaylist(track)
+    discoverPlaylistForTrack(track, 40)
       .then((playlist) => {
         if (!playlist || token !== discoveryToken.current) return;
         setState((p) => {
           if (p.currentTrack?.id !== track.id) return p; // user moved on
-          const queue = buildQueueFromPlaylist(track, playlist, exclude);
+          const queue = buildQueueFromDiscovery(track, playlist.tracks, exclude);
           return { ...p, queue: enforceQueueRules(dedupeTracks(queue), queue.length) };
         });
       })
@@ -113,7 +129,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const extendQueue = useCallback((seed: Track) => {
     if (extendingRef.current) return;
     extendingRef.current = true;
-    discoverPlaylist(seed)
+    discoverPlaylistForTrack(seed, 40)
       .then((playlist) => {
         if (!playlist) return;
         setState((p) => {
