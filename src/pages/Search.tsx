@@ -16,7 +16,6 @@ import { getUserPlaylists } from "@/services/playlistService";
 import { getCombinedScore } from "@/lib/balancedPlaylist";
 import { supabase } from "@/integrations/supabase/client";
 
-import { DatasetResults } from "@/components/search/DatasetResults";
 const SEARCH_HISTORY_KEY = 'echotunes_search_history';
 const MAX_HISTORY = 10;
 function getSearchHistory(): string[] { try { return JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY) || '[]'); } catch { return []; } }
@@ -345,8 +344,6 @@ export default function Search() {
           {showMixes && (
             <MixesResults query={debouncedQuery} />
           )}
-          {/* Curated playlist-dataset results (offline-safe) */}
-          <DatasetResults query={debouncedQuery} />
           {topItems.length === 0 && podcasts.length === 0 && (
             <div className="py-12 text-center"><p className="text-muted-foreground">No results found for "{query}"</p></div>
           )}
