@@ -14,7 +14,356 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      discovered_playlists: {
+        Row: {
+          created_at: string
+          id: string
+          playlist_id: string
+          playlist_image: string | null
+          playlist_title: string | null
+          seed_artist: string
+          seed_title: string
+          seed_track_id: string
+          source: string
+          tracks: Json
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          playlist_id: string
+          playlist_image?: string | null
+          playlist_title?: string | null
+          seed_artist: string
+          seed_title: string
+          seed_track_id: string
+          source?: string
+          tracks?: Json
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          playlist_id?: string
+          playlist_image?: string | null
+          playlist_title?: string | null
+          seed_artist?: string
+          seed_title?: string
+          seed_track_id?: string
+          source?: string
+          tracks?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      followed_artists: {
+        Row: {
+          artist_id: string | null
+          artist_image: string | null
+          artist_name: string
+          created_at: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          artist_id?: string | null
+          artist_image?: string | null
+          artist_name: string
+          created_at?: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          artist_id?: string | null
+          artist_image?: string | null
+          artist_name?: string
+          created_at?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      generated_queues: {
+        Row: {
+          created_at: string
+          id: string
+          seed_artist: string | null
+          seed_title: string | null
+          seed_track_id: string | null
+          tracks: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          seed_artist?: string | null
+          seed_title?: string | null
+          seed_track_id?: string | null
+          tracks?: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          seed_artist?: string | null
+          seed_title?: string | null
+          seed_track_id?: string | null
+          tracks?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      liked_songs: {
+        Row: {
+          device_id: string
+          id: string
+          liked_at: string
+          track_album: string | null
+          track_artist: string
+          track_artwork: string | null
+          track_duration: number | null
+          track_title: string
+          user_id: string | null
+          youtube_id: string | null
+        }
+        Insert: {
+          device_id: string
+          id?: string
+          liked_at?: string
+          track_album?: string | null
+          track_artist: string
+          track_artwork?: string | null
+          track_duration?: number | null
+          track_title: string
+          user_id?: string | null
+          youtube_id?: string | null
+        }
+        Update: {
+          device_id?: string
+          id?: string
+          liked_at?: string
+          track_album?: string | null
+          track_artist?: string
+          track_artwork?: string | null
+          track_duration?: number | null
+          track_title?: string
+          user_id?: string | null
+          youtube_id?: string | null
+        }
+        Relationships: []
+      }
+      playlist_tracks: {
+        Row: {
+          added_at: string
+          id: string
+          playlist_id: string
+          position: number
+          track_album: string | null
+          track_artist: string
+          track_artwork: string | null
+          track_duration: number | null
+          track_preview: string | null
+          track_title: string
+        }
+        Insert: {
+          added_at?: string
+          id?: string
+          playlist_id: string
+          position?: number
+          track_album?: string | null
+          track_artist: string
+          track_artwork?: string | null
+          track_duration?: number | null
+          track_preview?: string | null
+          track_title: string
+        }
+        Update: {
+          added_at?: string
+          id?: string
+          playlist_id?: string
+          position?: number
+          track_album?: string | null
+          track_artist?: string
+          track_artwork?: string | null
+          track_duration?: number | null
+          track_preview?: string | null
+          track_title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "playlist_tracks_playlist_id_fkey"
+            columns: ["playlist_id"]
+            isOneToOne: false
+            referencedRelation: "playlists"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      playlists: {
+        Row: {
+          cover_image: string | null
+          created_at: string
+          description: string | null
+          id: string
+          is_public: boolean
+          name: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          cover_image?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_public?: boolean
+          name?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          cover_image?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_public?: boolean
+          name?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          bio: string | null
+          created_at: string
+          display_name: string | null
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          bio?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          avatar_url?: string | null
+          bio?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_settings: {
+        Row: {
+          settings: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          settings?: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          settings?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_taste_events: {
+        Row: {
+          artist: string | null
+          created_at: string
+          event_type: string
+          genre: string | null
+          id: string
+          track_id: string | null
+          track_title: string | null
+          user_id: string
+          weight: number
+        }
+        Insert: {
+          artist?: string | null
+          created_at?: string
+          event_type: string
+          genre?: string | null
+          id?: string
+          track_id?: string | null
+          track_title?: string | null
+          user_id: string
+          weight?: number
+        }
+        Update: {
+          artist?: string | null
+          created_at?: string
+          event_type?: string
+          genre?: string | null
+          id?: string
+          track_id?: string | null
+          track_title?: string | null
+          user_id?: string
+          weight?: number
+        }
+        Relationships: []
+      }
+      youtube_cache: {
+        Row: {
+          album: string | null
+          artist: string
+          channel_title: string | null
+          created_at: string
+          duration: number | null
+          id: string
+          thumbnail: string | null
+          title: string
+          updated_at: string
+          video_id: string
+          video_title: string | null
+          view_count: string | null
+        }
+        Insert: {
+          album?: string | null
+          artist: string
+          channel_title?: string | null
+          created_at?: string
+          duration?: number | null
+          id?: string
+          thumbnail?: string | null
+          title: string
+          updated_at?: string
+          video_id: string
+          video_title?: string | null
+          view_count?: string | null
+        }
+        Update: {
+          album?: string | null
+          artist?: string
+          channel_title?: string | null
+          created_at?: string
+          duration?: number | null
+          id?: string
+          thumbnail?: string | null
+          title?: string
+          updated_at?: string
+          video_id?: string
+          video_title?: string | null
+          view_count?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
