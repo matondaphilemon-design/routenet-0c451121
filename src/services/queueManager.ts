@@ -13,6 +13,7 @@
 import { Track } from "@/data/mockData";
 import { supabase } from "@/integrations/supabase/client";
 import { toTitleCase } from "@/utils/toTitleCase";
+import { discoverPlaylistForTrack } from "./playlistDiscovery";
 
 export type QueueMode = "radio" | "fixed";
 
@@ -150,11 +151,6 @@ class QueueManager {
     this.recordPlayed(seed);
 
     const cacheKey = id || `seed:${seed.id}`;
-    const cached = this.radioCache.get(cacheKey);
-    if (cached && cached.length > 0) {
-      return enforceQueueRules(cached, INITIAL_RADIO_FETCH, this.recentArtists, this.recentIdSet());
-    }
-
     const pool = await this.buildCandidatePool(seed, id);
     const filtered = enforceQueueRules(pool, INITIAL_RADIO_FETCH, this.recentArtists, this.recentIdSet());
     if (filtered.length > 0) this.radioCache.set(cacheKey, filtered);
@@ -173,21 +169,12 @@ class QueueManager {
     };
     const pool: Track[] = [];
 
-    // 1) Playlists containing the seed (approximated by searching "artist title").
+    // 1) PRIMARY: a freshly discovered, genre/style-matched playlist
+    //    (Piped/YouTube first, Deezer second). Re-searched on every play, so
+    //    a song is never permanently tied to one playlist.
     try {
-      const q = `${seed.artist} ${seed.title}`.slice(0, 80);
-      const { data: pls } = await supabase.functions.invoke("deezer", {
-        body: { action: "searchPlaylist", params: { query: q, limit: 3 } },
-      });
-      const playlists = pls?.data || [];
-      for (const p of playlists.slice(0, 2)) {
-        try {
-          const { data: ptr } = await supabase.functions.invoke("deezer", {
-            body: { action: "getPlaylistTracks", params: { playlistId: p.id, limit: 30 } },
-          });
-          push((ptr?.data || []).map(mapDeezerToTrack), pool);
-        } catch { /* skip */ }
-      }
+      const discovered = await discoverPlaylistForTrack(seed, 40);
+      if (discovered?.tracks?.length) push(discovered.tracks, pool);
     } catch { /* skip */ }
 
     // 2) Artist / track radio.

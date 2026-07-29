@@ -14,13 +14,6 @@ import {
 } from "@/services/deezer";
 import { getTopSignalArtists } from "@/services/tasteEvents";
 import { cached } from "@/services/homeCache";
-import {
-  getPopularPlaylists, getPlaylistsByMood, getPlaylistsByGenre,
-} from "@/services/playlistData";
-import {
-  resolveDatasetTracks, getDatasetTracksForArtists,
-  getRecommendationsFromSeed, getRecommendationsFromPlaylistData,
-} from "@/services/datasetRecommendations";
 
 import type { FeedVideo } from "@/components/home/cards/UnifiedCards";
 
@@ -182,47 +175,27 @@ async function loadSearchPlaylists(query: string, limit = 15): Promise<SectionRe
   });
 }
 
-// -------- Playlist-dataset backed loaders --------
-// The bundled dataset (public/playlist-data.json) provides pre-curated
-// playlists, co-occurrence recommendations and an offline-safe fallback.
+// -------- Live fallback loaders (no bundled dataset) --------
+// Everything is fetched from the live APIs; nothing is shipped statically.
 async function loadDatasetPopular(index: number, limit = 15): Promise<SectionResult> {
-  const playlists = await getPopularPlaylists(24);
-  const pl = playlists[index % Math.max(playlists.length, 1)];
-  if (!pl) return {};
-  return { title: pl.title, songs: await resolveDatasetTracks(pl.tracks, limit) };
+  return loadChartTracks(limit + index);
 }
-
 async function loadDatasetMood(mood: string, limit = 15): Promise<SectionResult> {
-  const playlists = await getPlaylistsByMood(mood, 5);
-  const entries = playlists.flatMap((p) => p.tracks).slice(0, limit * 2);
-  if (!entries.length) return {};
-  return { songs: await resolveDatasetTracks(entries, limit) };
+  return loadSearchTracks(`${mood} mix`, limit);
 }
-
 async function loadDatasetGenre(genre: string, limit = 15): Promise<SectionResult> {
-  const playlists = await getPlaylistsByGenre(genre, 5);
-  const entries = playlists.flatMap((p) => p.tracks).slice(0, limit * 2);
-  if (!entries.length) return {};
-  return { songs: await resolveDatasetTracks(entries, limit) };
+  return loadSearchTracks(`${genre} hits`, limit);
 }
-
 async function loadDatasetForArtists(artists: string[], limit = 15): Promise<SectionResult> {
-  if (!artists.length) return {};
-  const entries = await getDatasetTracksForArtists(artists, limit * 2);
-  if (!entries.length) return {};
-  return { songs: await resolveDatasetTracks(entries, limit) };
+  if (!artists.length) return loadChartTracks(limit);
+  return loadArtistRadio(artists[Math.floor(Math.random() * artists.length)], limit);
 }
-
 async function loadDatasetSeed(seed: Track, limit = 15): Promise<SectionResult> {
-  const entries = await getRecommendationsFromSeed(seed.title, seed.artist, limit * 2);
-  if (!entries.length) return {};
-  return { songs: await resolveDatasetTracks(entries, limit) };
+  return loadSearchTracks(`${seed.artist} mix`, limit);
 }
-
 async function loadDatasetTaste(genres: string[], limit = 15): Promise<SectionResult> {
-  const entries = await getRecommendationsFromPlaylistData(genres, limit * 2);
-  if (!entries.length) return {};
-  return { songs: await resolveDatasetTracks(entries, limit) };
+  if (!genres.length) return loadChartTracks(limit);
+  return loadSearchTracks(`${genres[0]} top songs`, limit);
 }
 
 /**
