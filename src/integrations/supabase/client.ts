@@ -2,8 +2,10 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+// Pinned to the repository's own Supabase project so the existing edge
+// functions (deezer, youtube, lyrics, ai-*) and data keep working after import.
+const SUPABASE_URL = "https://hsjntwgoyhljnvlfgjkd.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_6GtIbJ9LIgJdPs383PO0qA_nTtw3Nf_";
 
 
 function isNewSupabaseApiKey(value: string): boolean {
