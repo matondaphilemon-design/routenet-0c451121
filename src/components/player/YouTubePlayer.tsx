@@ -36,6 +36,7 @@ interface YTPlayerOptions {
     rel?: number;
     playsinline?: number;
     fs?: number;
+    start?: number;
   };
   events?: {
     onReady?: () => void;
@@ -58,6 +59,8 @@ declare global {
 
 interface YouTubePlayerProps {
   videoId: string;
+  /** Resume position in seconds (used when failing over from a dead stream). */
+  startSeconds?: number;
   isPlaying: boolean;
   onReady?: () => void;
   onStateChange?: (state: number) => void;
@@ -125,6 +128,7 @@ export const YouTubePlayer = forwardRef<YouTubePlayerRef, YouTubePlayerProps>(
   (
     {
       videoId,
+      startSeconds = 0,
       isPlaying,
       onReady,
       onStateChange,
@@ -144,6 +148,8 @@ export const YouTubePlayer = forwardRef<YouTubePlayerRef, YouTubePlayerProps>(
     const currentVideoIdRef = useRef<string>("");
     const isPlayingRef = useRef(isPlaying);
     const initCountRef = useRef(0);
+    const startSecondsRef = useRef(startSeconds);
+    startSecondsRef.current = startSeconds;
     isPlayingRef.current = isPlaying;
 
     // Store callbacks in refs to avoid recreating player on callback changes
@@ -230,10 +236,14 @@ export const YouTubePlayer = forwardRef<YouTubePlayerRef, YouTubePlayerProps>(
           rel: 0,
           playsinline: 1,
           fs: 1,
+          start: Math.floor(startSecondsRef.current || 0),
         },
         events: {
           onReady: () => {
             isPlayerReady.current = true;
+            if (startSecondsRef.current > 0) {
+              try { playerRef.current?.seekTo(startSecondsRef.current, true); } catch {}
+            }
             onReadyRef.current?.();
             if (isPlayingRef.current) {
               playerRef.current?.playVideo();
