@@ -70,7 +70,7 @@ function dedupeTracks(tracks: Track[]): Track[] {
 
 function recordAdvancedTrack(track: Track) {
   recordListen(track);
-  queueManager.recordPlayed(track);
+  markPlayed(track);
 }
 
 export function PlayerProvider({ children }: { children: ReactNode }) {
@@ -91,55 +91,73 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   // Guards against overlapping discovery runs (only the newest one applies).
   const discoveryToken = useRef(0);
   const extendingRef = useRef(false);
+  const hydratedRef = useRef(false);
+
+  // Queue recovery — restore the previous session on refresh (paused).
+  useEffect(() => {
+    if (hydratedRef.current) return;
+    hydratedRef.current = true;
+    const session = loadSession();
+    if (!session || session.queue.length === 0) return;
+    const index = Math.min(Math.max(session.index, 0), session.queue.length - 1);
+    setState((p) => (p.currentTrack ? p : { ...p, queue: session.queue, currentTrack: session.queue[index] }));
+  }, []);
+
+  // Persist lightweight session data (played IDs, queue, position).
+  useEffect(() => {
+    if (!state.queue.length) return;
+    const index = Math.max(0, state.queue.findIndex((t) => t.id === state.currentTrack?.id));
+    saveSession(state.queue, index);
+  }, [state.queue, state.currentTrack]);
 
   /**
-   * Replace the queue behind `track` with a freshly discovered playlist.
-   * Runs at most once per selection — the token invalidates stale results.
+   * Every song selection starts a fresh Piped discovery session: the queue
+   * behind the seed is rebuilt from ranked, diversified candidates.
    */
-  const buildRecommendations = useCallback((track: Track, sourceList?: Track[]) => {
+  const buildRecommendations = useCallback((track: Track, _sourceList?: Track[]) => {
     const token = ++discoveryToken.current;
-    const exclude = new Set((sourceList || []).map((t) => t.id).filter((id) => id !== track.id));
-    discoverPlaylistForTrack(track, 40)
-      .then((playlist) => {
-        if (!playlist || token !== discoveryToken.current) return;
+    buildRadioQueue(track)
+      .then((queue) => {
+        if (queue.length < 2 || token !== discoveryToken.current) return;
         setState((p) => {
           if (p.currentTrack?.id !== track.id) return p; // user moved on
-          const queue = buildQueueFromDiscovery(track, playlist.tracks, exclude);
-          return { ...p, queue: enforceQueueRules(dedupeTracks(queue), queue.length) };
+          return { ...p, queue: dedupeTracks(queue) };
         });
       })
       .catch(() => {});
   }, []);
 
   /**
-   * Append more recommendations when a queue (album, playlist, radio) is
-   * about to run out, so listening never dead-ends.
+   * Append a fresh batch seeded by the currently playing song so the
+   * session never ends. Runs in the background — playback is untouched.
    */
   const extendQueue = useCallback((seed: Track) => {
     if (extendingRef.current) return;
     extendingRef.current = true;
-    discoverPlaylistForTrack(seed, 40)
-      .then((playlist) => {
-        if (!playlist) return;
-        setState((p) => {
-          const existing = new Set(p.queue.map((t) => t.id));
-          const extras = playlist.tracks.filter((t) => !existing.has(t.id));
-          if (!extras.length) return p;
-          const merged = dedupeTracks([...p.queue, ...extras]);
-          return { ...p, queue: enforceQueueRules(merged, merged.length) };
-        });
-      })
-      .catch(() => {})
-      .finally(() => { extendingRef.current = false; });
+    setState((p) => {
+      expandRadioQueue(seed, p.queue)
+        .then((extras) => {
+          if (!extras.length) return;
+          setState((cur) => {
+            const existing = new Set(cur.queue.map((t) => t.id));
+            const fresh = extras.filter((t) => !existing.has(t.id));
+            if (!fresh.length) return cur;
+            return { ...cur, queue: dedupeTracks([...cur.queue, ...fresh]) };
+          });
+        })
+        .catch(() => {})
+        .finally(() => { extendingRef.current = false; });
+      return p;
+    });
   }, []);
 
   const play = useCallback((track?: Track) => {
     unlockMediaPlayback();
     if (track) {
       recordListen(track);
-      queueManager.recordPlayed(track);
+      markPlayed(track);
       setState((prev) => {
-        // Any explicit song selection starts a fresh Deezer playlist discovery.
+        // Any explicit song selection starts a fresh Piped discovery session.
         buildRecommendations(track);
         return {
           ...prev,
@@ -164,7 +182,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const playTrack = useCallback((track: Track, sourceList?: Track[]) => {
     unlockMediaPlayback();
     recordListen(track);
-    queueManager.recordPlayed(track);
+    markPlayed(track);
     shuffleHistoryRef.current.clear();
     setState((prev) => ({
       ...prev,
