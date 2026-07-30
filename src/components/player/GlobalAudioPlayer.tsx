@@ -127,7 +127,10 @@ export function GlobalAudioPlayer() {
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const pipedProgressRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const iframeFailCountRef = useRef(0);
+  // Position (seconds) the iframe should resume from after a stream failover.
+  const resumeAtRef = useRef(0);
   const hasEndedRef = useRef(false); // Prevent double-fire of track end
+
   const crossfadeTriggeredRef = useRef(false);
   const crossfadeFadeRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   // Set when crossfade fired; consumed by the next track's load to fade in.
