@@ -357,19 +357,47 @@ export function GlobalAudioPlayer() {
 
       audio.addEventListener("ended", handleTrackEnd);
 
+      // If the direct stream dies part-way through (expired/geo-locked CDN
+      // URL, network hiccup), don't kill playback — hand the rest of the
+      // song over to the YouTube iframe at the exact same position so the
+      // track always plays to the end.
       audio.addEventListener("error", () => {
-        console.warn("[Piped Audio] Playback error, marking as iframe-only");
+        const at = audioRef.current?.currentTime || 0;
+        console.warn("[Piped Audio] Playback error — failing over to iframe at", at);
         markAsIframeOnly(videoId);
         stopPipedAudio();
+        failoverToIframe(videoId, at);
       });
 
       await audio.play();
       setUsePipedAudio(true);
 
+      let lastTime = -1;
+      let stalledTicks = 0;
       pipedProgressRef.current = setInterval(() => {
         if (audioRef.current) {
           const ct = audioRef.current.currentTime;
           const dur = audioRef.current.duration;
+
+          // Stall watchdog: playback position frozen for ~8s while we think
+          // we're playing means the stream died silently. Fail over.
+          if (!audioRef.current.paused && !hasEndedRef.current) {
+            if (Math.abs(ct - lastTime) < 0.01) {
+              stalledTicks++;
+              if (stalledTicks > 32) {
+                stalledTicks = 0;
+                console.warn("[Piped Audio] Stalled — failing over to iframe at", ct);
+                markAsIframeOnly(videoId);
+                stopPipedAudio();
+                failoverToIframe(videoId, ct);
+                return;
+              }
+            } else {
+              stalledTicks = 0;
+            }
+          }
+          lastTime = ct;
+
           if (dur > 0) {
             setProgress(ct, dur);
             if (
@@ -393,6 +421,7 @@ export function GlobalAudioPlayer() {
           }
         }
       }, 250);
+
 
       console.log(`✅ Playing via Piped audio: ${track.title}`);
       return true;
