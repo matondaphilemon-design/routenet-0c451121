@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { SectionDescriptor, SectionResult } from "@/services/homeFeedEngine";
 import type { Track } from "@/data/mockData";
-import { SongCard, AlbumCard, PlaylistCard, ArtistCard, CardSkeleton, SongListRow, SongListColumn, MusicVideoCard, ListSkeleton, VideoSkeleton } from "./cards/UnifiedCards";
+import { SongCard, AlbumCard, PlaylistCard, ArtistCard, CardSkeleton, SongListRow, SongListColumn, CompactMusicVideoCard, ListSkeleton, VideoSkeleton } from "./cards/UnifiedCards";
 
 interface Props {
   section: SectionDescriptor;
@@ -46,7 +46,7 @@ export function HomeSectionRow({ section, onPlay }: Props) {
     if (!data) return null;
     if (section.kind === "videos" && data.videos?.length) {
       return data.videos.slice(0, 12).map((v) => (
-        <MusicVideoCard
+        <CompactMusicVideoCard
           key={v.id}
           video={v}
           onClick={() => onPlay(
@@ -100,7 +100,7 @@ export function HomeSectionRow({ section, onPlay }: Props) {
         </div>
       </div>
       <div className="-mx-4 overflow-x-auto overscroll-x-contain scroll-smooth px-4 pb-1 scrollbar-hide snap-x snap-mandatory">
-        <div className="flex gap-3 sm:gap-4">
+        <div className={section.kind === "videos" ? "grid w-max grid-flow-col grid-rows-2 gap-x-4 gap-y-3" : "flex gap-3 sm:gap-4"}>
           {items ?? Array.from({ length: section.kind === "videos" ? 3 : section.kind === "songlist" ? 2 : 6 }).map((_, i) =>
             section.kind === "videos" ? <VideoSkeleton key={i} />
               : section.kind === "songlist" ? <ListSkeleton key={i} />

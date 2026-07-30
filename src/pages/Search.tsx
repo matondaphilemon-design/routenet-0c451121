@@ -23,7 +23,7 @@ function addToSearchHistory(query: string) { if (!query.trim()) return; const h 
 function removeFromSearchHistory(query: string) { localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(getSearchHistory().filter(h => h !== query))); }
 function clearSearchHistory() { localStorage.removeItem(SEARCH_HISTORY_KEY); }
 
-type FilterType = 'all' | 'tracks' | 'artists' | 'albums' | 'playlists' | 'mixes';
+type FilterType = 'all' | 'tracks' | 'artists' | 'albums' | 'playlists' | 'mixes' | 'deezer';
 const filterOptions: { type: FilterType; label: string; icon: React.ReactNode }[] = [
   { type: 'all', label: 'All', icon: null },
   { type: 'tracks', label: 'Songs', icon: <Music className="h-3 w-3" /> },
@@ -31,6 +31,7 @@ const filterOptions: { type: FilterType; label: string; icon: React.ReactNode }[
   { type: 'albums', label: 'Albums', icon: <Disc className="h-3 w-3" /> },
   { type: 'playlists', label: 'Playlists', icon: <Music className="h-3 w-3" /> },
   { type: 'mixes', label: 'Mixes', icon: <Radio className="h-3 w-3" /> },
+  { type: 'deezer', label: 'Deezer', icon: <Disc className="h-3 w-3" /> },
 ];
 
 const isSpeechRecognitionSupported = () => 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
@@ -150,10 +151,11 @@ export default function Search() {
         .sort((a, b) => rankedScore(debouncedQuery, b, taste) - rankedScore(debouncedQuery, a, taste))
     : [];
 
-  // Piped results lead (they are guaranteed playable); Deezer results fill in.
-  const filteredTracks: Track[] = (unifiedTracks && unifiedTracks.length
+  // Default song results are playback-first. Deezer-only results are exposed
+  // separately through the Deezer filter instead of being mixed into All.
+  const filteredTracks: Track[] = (unifiedTracks?.length
     ? [...unifiedTracks].sort((a, b) => rankedScore(debouncedQuery, b, taste) - rankedScore(debouncedQuery, a, taste))
-    : deezerTracks) as Track[];
+    : []) as Track[];
 
   const filteredArtists = hasApiResults
     ? searchResults.artists.map((a): Artist => ({ id: a.id, name: a.name, avatar: a.avatar || '', monthlyListeners: a.monthlyListeners || 0 }))
@@ -177,12 +179,11 @@ export default function Search() {
   const showAlbums = activeFilter === 'all' || activeFilter === 'albums';
   const showPlaylists = activeFilter === 'all' || activeFilter === 'playlists';
   const showMixes = activeFilter === 'mixes';
+  const showDeezer = activeFilter === 'deezer';
 
   // Find the top result across all types
   const topItems = [
     ...filteredTracks.map(t => ({ type: 'track' as const, score: scoreMatch(debouncedQuery, t), item: t })),
-    ...filteredArtists.map(a => ({ type: 'artist' as const, score: scoreMatch(debouncedQuery, { name: a.name }), item: a })),
-    ...filteredAlbums.map(a => ({ type: 'album' as const, score: scoreMatch(debouncedQuery, a), item: a })),
     ...matchingPlaylists.map(p => ({ type: 'playlist' as const, score: scoreMatch(debouncedQuery, { title: p.name }), item: p })),
   ].sort((a, b) => b.score - a.score);
 
@@ -343,6 +344,22 @@ export default function Search() {
           )}
           {showMixes && (
             <MixesResults query={debouncedQuery} />
+          )}
+          {showDeezer && (
+            <section className="space-y-5">
+              <div>
+                <h2 className="mb-2 text-base font-bold text-foreground">Deezer Songs</h2>
+                <div className="space-y-1">{deezerTracks.map((track, index) => <TrackCard key={track.id} track={track} index={index} contextTracks={deezerTracks} radioFromSearch />)}</div>
+              </div>
+              <div>
+                <h2 className="mb-2 text-base font-bold text-foreground">Deezer Artists</h2>
+                <div className="grid grid-cols-2 gap-3">{filteredArtists.map((artist) => <ArtistCard key={artist.id} artist={artist} />)}</div>
+              </div>
+              <div>
+                <h2 className="mb-2 text-base font-bold text-foreground">Deezer Albums</h2>
+                <div className="grid grid-cols-2 gap-3">{filteredAlbums.map((album) => <AlbumCard key={album.id} album={album} />)}</div>
+              </div>
+            </section>
           )}
           {topItems.length === 0 && podcasts.length === 0 && (
             <div className="py-12 text-center"><p className="text-muted-foreground">No results found for "{query}"</p></div>
