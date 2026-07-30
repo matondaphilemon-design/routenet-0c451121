@@ -264,34 +264,6 @@ export default function Search() {
                       </motion.div>
                     );
                   }
-                  if (entry.type === 'artist') {
-                    const a = entry.item as Artist;
-                    return (
-                      <motion.div key={`ar-${a.id}`} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i * 0.03, 0.3) }}
-                        className="flex items-center gap-3 rounded-lg p-2 cursor-pointer hover:bg-white/10 active:bg-white/15 transition-colors"
-                        onClick={() => navigate(`/artist/${encodeURIComponent(a.name)}`)}>
-                        <img src={a.avatar} alt="" className="h-12 w-12 rounded-full object-cover flex-shrink-0" />
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold text-foreground">{a.name}</p>
-                          <p className="truncate text-xs text-muted-foreground">Artist</p>
-                        </div>
-                      </motion.div>
-                    );
-                  }
-                  if (entry.type === 'album') {
-                    const a = entry.item as Album;
-                    return (
-                      <motion.div key={`al-${a.id}`} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i * 0.03, 0.3) }}
-                        className="flex items-center gap-3 rounded-lg p-2 cursor-pointer hover:bg-white/10 active:bg-white/15 transition-colors"
-                        onClick={() => navigate(`/album/${a.id.toString().replace("deezer-", "")}`)}>
-                        <img src={a.artwork} alt="" className="h-12 w-12 rounded-lg object-cover flex-shrink-0" />
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold text-foreground">{a.title}</p>
-                          <p className="truncate text-xs text-muted-foreground">Album • {a.artist}</p>
-                        </div>
-                      </motion.div>
-                    );
-                  }
                   if (entry.type === 'playlist') {
                     const p = entry.item as any;
                     return (

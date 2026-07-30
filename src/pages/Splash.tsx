@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppLogo } from "@/components/brand/AppLogo";
+import { Button } from "@/components/ui/button";
 
 export default function Splash() {
   const navigate = useNavigate();
