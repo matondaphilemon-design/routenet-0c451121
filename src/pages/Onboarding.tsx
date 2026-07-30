@@ -14,6 +14,7 @@ import {
   Search,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { genreArtistMap } from "@/constants/genreArtists";
 import { lovable } from "@/integrations/lovable";
 import { toast } from "sonner";
 
@@ -101,24 +102,8 @@ const MOODS = [
   { name: "Happy", gradient: "from-secondary/80 to-background" },
 ];
 
-const TOP_ARTISTS_BY_GENRE: Record<string, string[]> = {
-  "Hip-Hop": ["Drake", "Kendrick Lamar", "Nicki Minaj", "Travis Scott", "J. Cole", "Lil Wayne", "Future", "21 Savage"],
-  "Pop": ["Taylor Swift", "Ariana Grande", "The Weeknd", "Dua Lipa", "Billie Eilish", "Olivia Rodrigo", "Sabrina Carpenter", "Harry Styles"],
-  "R&B": ["SZA", "Usher", "Brent Faiyaz", "Summer Walker", "Chris Brown", "Giveon", "H.E.R.", "Frank Ocean"],
-  "Rock": ["Queen", "Foo Fighters", "Nirvana", "Arctic Monkeys", "The Killers", "Linkin Park", "Red Hot Chili Peppers", "Paramore"],
-  "Electronic": ["Calvin Harris", "David Guetta", "Fred again..", "Disclosure", "Avicii", "Martin Garrix", "Skrillex", "Swedish House Mafia"],
-  "Afrobeats": ["Burna Boy", "Wizkid", "Davido", "Rema", "Tems", "Asake", "Ayra Starr", "Omah Lay"],
-  "Indie": ["Tame Impala", "Lana Del Rey", "Clairo", "Phoebe Bridgers", "The 1975", "Vampire Weekend", "Mitski", "Mac DeMarco"],
-  "Jazz": ["Miles Davis", "John Coltrane", "Ella Fitzgerald", "Nina Simone", "Louis Armstrong", "Herbie Hancock", "Kamasi Washington", "Norah Jones"],
-  "Classical": ["Ludovico Einaudi", "Yo-Yo Ma", "Lang Lang", "Max Richter", "Hans Zimmer", "Beethoven", "Mozart", "Chopin"],
-  "Country": ["Morgan Wallen", "Luke Combs", "Zach Bryan", "Lainey Wilson", "Chris Stapleton", "Kacey Musgraves", "Dolly Parton", "Shania Twain"],
-  "Reggae": ["Bob Marley & The Wailers", "Sean Paul", "Damian Marley", "Shaggy", "Chronixx", "Protoje", "Koffee", "Buju Banton"],
-  "Metal": ["Metallica", "Slipknot", "System Of A Down", "Bring Me The Horizon", "Iron Maiden", "Black Sabbath", "Deftones", "Avenged Sevenfold"],
-  "Latin": ["Bad Bunny", "Karol G", "J Balvin", "Shakira", "Feid", "Rauw Alejandro", "Peso Pluma", "Maluma"],
-  "K-Pop": ["BTS", "BLACKPINK", "NewJeans", "Stray Kids", "TWICE", "SEVENTEEN", "IVE", "LE SSERAFIM"],
-  "Lo-fi": ["Nujabes", "Jinsang", "idealism", "potsu", "j^p^n", "bsd.u", "Kupla", "Tomppabeats"],
-  "Gospel": ["Kirk Franklin", "Tasha Cobbs Leonard", "Maverick City Music", "CeCe Winans", "Elevation Worship", "Mary Mary", "Fred Hammond", "Jonathan McReynolds"],
-};
+
+const TOP_ARTISTS_BY_GENRE = genreArtistMap;
 
 function saveOnboarding(data: any) {
   try {
