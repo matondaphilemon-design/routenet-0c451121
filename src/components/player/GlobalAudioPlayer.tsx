@@ -747,8 +747,10 @@ export function GlobalAudioPlayer() {
       <YouTubePlayer
         ref={playerRef}
         videoId={youtubeId}
+        startSeconds={resumeAtRef.current}
         isPlaying={isPlaying}
         onProgress={handleProgress}
+
         onEnd={handleVideoEnd}
         onReady={() => console.log("[GlobalAudioPlayer] YouTube player ready")}
         onError={handlePlayerError}
