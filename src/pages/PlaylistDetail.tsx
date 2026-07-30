@@ -24,7 +24,40 @@ interface PlaylistData {
   user?: { name?: string };
 }
 
+/** YouTube playlists (ids prefixed with `yt-`) come from the homepage feed. */
+async function fetchYouTubePlaylist(playlistId: string): Promise<{ playlist: PlaylistData | null; tracks: Track[] }> {
+  try {
+    const { data } = await supabase.functions.invoke("youtube", {
+      body: { action: "getPlaylistItems", params: { playlistId, limit: 50 } },
+    });
+    const items: any[] = data?.data || [];
+    const tracks: Track[] = items.map((v) => ({
+      id: `yt-${v.videoId}`,
+      title: v.title,
+      artist: (v.channelTitle || "YouTube").replace(/\s*-\s*Topic$/i, ""),
+      album: "",
+      artwork: v.thumbnail || `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`,
+      duration: 0,
+      youtubeId: v.videoId,
+    }));
+    return {
+      playlist: {
+        id: 0,
+        title: "YouTube Playlist",
+        picture_big: tracks[0]?.artwork,
+        nb_tracks: tracks.length,
+        creator: { name: tracks[0]?.artist },
+      } as PlaylistData,
+      tracks,
+    };
+  } catch (e) {
+    console.warn("[PlaylistDetail] youtube fetch failed", e);
+    return { playlist: null, tracks: [] };
+  }
+}
+
 async function fetchPlaylist(id: string): Promise<{ playlist: PlaylistData | null; tracks: Track[] }> {
+  if (id.startsWith("yt-")) return fetchYouTubePlaylist(id.slice(3));
   try {
     const { data: pl } = await supabase.functions.invoke("deezer", {
       body: { action: "getPlaylist", params: { playlistId: id } },
@@ -39,6 +72,7 @@ async function fetchPlaylist(id: string): Promise<{ playlist: PlaylistData | nul
     return { playlist: null, tracks: [] };
   }
 }
+
 
 export default function PlaylistDetail() {
   const navigate = useNavigate();
