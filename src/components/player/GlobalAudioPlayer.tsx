@@ -552,6 +552,8 @@ export function GlobalAudioPlayer() {
 
       stopPipedAudio();
       iframeFailCountRef.current = 0;
+      resumeAtRef.current = 0;
+
 
       if ("mediaSession" in navigator) {
         navigator.mediaSession.metadata = new MediaMetadata({
