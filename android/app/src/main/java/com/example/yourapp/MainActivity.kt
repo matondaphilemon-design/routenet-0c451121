@@ -87,15 +87,29 @@ class MainActivity : AppCompatActivity() {
         val assetManager = assets
         val webDir = File(filesDir, "webapp")
         if (!webDir.exists()) webDir.mkdirs()
+        copyAssetFolder(assetManager, "webapp", webDir)
+    }
 
-        val files = assetManager.list("webapp") ?: return
-        for (name in files) {
-            val inputStream = assetManager.open("webapp/$name")
-            val outFile = File(webDir, name)
-            val outputStream = FileOutputStream(outFile)
+    private fun copyAssetFolder(assetManager: android.content.res.AssetManager, sourcePath: String, destinationDir: File) {
+        val entries = assetManager.list(sourcePath) ?: return
+        if (entries.isEmpty()) {
+            val inputStream = assetManager.open(sourcePath)
+            val outputFile = File(destinationDir, sourcePath.substringAfterLast('/'))
+            outputFile.parentFile?.mkdirs()
+            val outputStream = FileOutputStream(outputFile)
             inputStream.copyTo(outputStream)
             inputStream.close()
             outputStream.close()
+            return
+        }
+
+        val targetDir = File(destinationDir, sourcePath.substringAfterLast('/'))
+        if (!targetDir.exists()) {
+            targetDir.mkdirs()
+        }
+
+        for (entry in entries) {
+            copyAssetFolder(assetManager, "$sourcePath/$entry", targetDir)
         }
     }
 

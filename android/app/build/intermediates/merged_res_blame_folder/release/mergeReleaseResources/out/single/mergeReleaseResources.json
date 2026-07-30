@@ -1,0 +1,38 @@
+[
+    {
+        "merged": "com.example.yourapp-release-48:/drawable_ic_play.xml.flat",
+        "source": "com.example.yourapp-main-49:/drawable/ic_play.xml"
+    },
+    {
+        "merged": "com.example.yourapp-release-48:/layout_activity_main.xml.flat",
+        "source": "com.example.yourapp-main-49:/layout/activity_main.xml"
+    },
+    {
+        "merged": "com.example.yourapp-release-48:/mipmap-anydpi-v26_ic_launcher.xml.flat",
+        "source": "com.example.yourapp-main-49:/mipmap-anydpi-v26/ic_launcher.xml"
+    },
+    {
+        "merged": "com.example.yourapp-release-48:/drawable_ic_skip_next.xml.flat",
+        "source": "com.example.yourapp-main-49:/drawable/ic_skip_next.xml"
+    },
+    {
+        "merged": "com.example.yourapp-release-48:/mipmap-anydpi-v26_ic_launcher_round.xml.flat",
+        "source": "com.example.yourapp-main-49:/mipmap-anydpi-v26/ic_launcher_round.xml"
+    },
+    {
+        "merged": "com.example.yourapp-release-48:/drawable_ic_music.xml.flat",
+        "source": "com.example.yourapp-main-49:/drawable/ic_music.xml"
+    },
+    {
+        "merged": "com.example.yourapp-release-48:/drawable_ic_pause.xml.flat",
+        "source": "com.example.yourapp-main-49:/drawable/ic_pause.xml"
+    },
+    {
+        "merged": "com.example.yourapp-release-48:/drawable_ic_launcher_foreground.xml.flat",
+        "source": "com.example.yourapp-main-49:/drawable/ic_launcher_foreground.xml"
+    },
+    {
+        "merged": "com.example.yourapp-release-48:/drawable_ic_skip_previous.xml.flat",
+        "source": "com.example.yourapp-main-49:/drawable/ic_skip_previous.xml"
+    }
+]

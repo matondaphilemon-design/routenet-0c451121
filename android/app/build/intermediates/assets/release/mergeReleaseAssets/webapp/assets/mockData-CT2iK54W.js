@@ -1,0 +1,1 @@
+const n=t=>{if(!t||t<=0)return"0:00";const r=Math.floor(t/3600),a=Math.floor(t%3600/60),o=Math.floor(t%60);return r>0?`${r}:${a.toString().padStart(2,"0")}:${o.toString().padStart(2,"0")}`:`${a}:${o.toString().padStart(2,"0")}`};export{n as f};

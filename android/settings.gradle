@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "YOUR_APP_NAME"
+rootProject.name = "RouteNet"
 include(":app")
