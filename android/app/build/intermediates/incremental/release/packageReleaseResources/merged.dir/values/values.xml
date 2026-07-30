@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#111111</color>
-    <string name="app_name">YOUR_APP_NAME</string>
+    <string name="app_name">RouteNet</string>
     <string name="notification_channel_description">Playback controls</string>
     <string name="notification_channel_name">Music Playback</string>
     <style name="Theme.App" parent="Theme.Material3.DayNight.NoActionBar">

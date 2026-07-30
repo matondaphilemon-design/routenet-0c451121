@@ -1,1 +1,0 @@
-import{j as e,b as o}from"./index-D_02ajrw.js";function r({className:n,imageClassName:s,alt:t="Routenet logo"}){return e.jsx("div",{className:o("flex items-center justify-center overflow-hidden bg-background",n),children:e.jsx("img",{src:"/logo.png",alt:t,className:o("h-full w-full object-contain",s),loading:"eager",decoding:"async"})})}export{r as A};
