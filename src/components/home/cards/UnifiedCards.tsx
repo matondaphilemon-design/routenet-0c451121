@@ -162,7 +162,7 @@ export function SongCard({ track, onClick }: { track: Track; onClick: () => void
 }
 
 export function AlbumCard({ album, onClick }: {
-  album: { id: number; title: string; cover: string; artist: string };
+  album: { id: string | number; title: string; cover: string; artist: string };
   onClick: () => void;
 }) {
   return (
@@ -179,7 +179,7 @@ export function AlbumCard({ album, onClick }: {
 }
 
 export function PlaylistCard({ playlist, onClick }: {
-  playlist: { id: number; title: string; cover: string; creator?: string };
+  playlist: { id: string | number; title: string; cover: string; creator?: string };
   onClick: () => void;
 }) {
   return (
@@ -196,7 +196,7 @@ export function PlaylistCard({ playlist, onClick }: {
 }
 
 export function ArtistCard({ artist, onClick }: {
-  artist: { id: number; name: string; picture: string; fans?: number };
+  artist: { id: string | number; name: string; picture: string; fans?: number };
   onClick: () => void;
 }) {
   return (
