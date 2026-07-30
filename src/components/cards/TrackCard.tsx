@@ -10,7 +10,7 @@ import { AddToPlaylistDialog } from "@/components/AddToPlaylistDialog";
 import { DownloadProgressCircle } from "@/components/DownloadProgressCircle";
 import { formatStreams } from "@/utils/formatStreams";
 import { useDownloadMode } from "@/context/DownloadModeContext";
-import { seedSearchRadioQueue } from "@/services/radioQueue";
+import { buildRadioQueue } from "@/services/radioEngine";
 
 interface TrackCardProps {
   track: Track;
@@ -48,9 +48,11 @@ export function TrackCard({ track, index, showIndex, contextTracks, download, hi
       if (contextTracks && contextTracks.length > 0) {
         if (radioFromSearch) {
           setQueue([track], { mode: "radio" });
-          seedSearchRadioQueue(track, contextTracks).then((radioQueue) => {
-            setQueue(radioQueue, { mode: "radio" });
-          }).catch(() => {});
+          buildRadioQueue(track)
+            .then((radioQueue) => {
+              if (radioQueue.length > 1) setQueue(radioQueue, { mode: "radio" });
+            })
+            .catch(() => {});
         } else {
           setQueue(contextTracks);
         }

@@ -303,19 +303,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
       const nextTrack = nextQueue[pickIndex];
       recordAdvancedTrack(nextTrack);
-      // Top up before the queue runs dry (works for fixed queues too).
-      if (nextQueue.length - pickIndex <= 3) extendQueue(nextTrack);
-      // Trigger radio refill if needed (radio mode only)
-      maybeRefillRadioQueue(nextTrack, nextQueue, pickIndex).then((extras) => {
-        if (extras.length > 0) {
-          setState((p) => {
-            const dedup = extras.filter(e => !p.queue.some(t => t.id === e.id));
-            if (dedup.length === 0) return p;
-            const queue = enforceQueueRules(dedupeTracks([...p.queue, ...dedup]), p.queue.length + dedup.length);
-            return { ...p, queue };
-          });
-        }
-      }).catch(() => {});
+      // Prefetch the next batch while music keeps playing.
+      if (needsRefill(nextQueue, pickIndex)) extendQueue(nextTrack);
       return { ...prev, queue: nextQueue, currentTrack: nextTrack, progress: 0, isPlaying: true };
     });
   }, [extendQueue]);
@@ -372,13 +361,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const setQueue = useCallback((tracks: Track[], opts?: { mode?: "radio" | "fixed" }) => {
     shuffleHistoryRef.current.clear();
-    // Default: setQueue with multiple tracks = fixed (album/playlist). Single = radio.
-    const mode = opts?.mode ?? (tracks.length > 1 ? "fixed" : "radio");
-    if (mode === "fixed") {
-      queueManager.setFixedMode();
-    }
-    const queue = tracks.length > 1 ? enforceQueueRules(dedupeTracks(tracks), tracks.length) : tracks;
-    setState((prev) => ({ ...prev, queue }));
+    setState((prev) => ({ ...prev, queue: dedupeTracks(tracks) }));
   }, []);
 
   // The real "up next" — derived from the current position in the queue so
