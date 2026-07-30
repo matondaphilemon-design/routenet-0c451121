@@ -260,6 +260,19 @@ export function GlobalAudioPlayer() {
   }, [stopNativeAudioPlayback]);
 
   /**
+   * Hand playback over to the YouTube iframe, resuming at `seconds`.
+   * Used whenever a direct stream dies so a song never stops half-way.
+   */
+  const failoverToIframe = useCallback((videoId: string, seconds: number) => {
+    resumeAtRef.current = seconds > 2 ? seconds : 0;
+    iframeFailCountRef.current = 0;
+    setYoutubeId(videoId);
+    setShowPlayer(true);
+  }, []);
+
+
+
+  /**
    * Promote audioRef to prevAudioRef and begin fading it out over the
    * crossfade window. The element keeps playing — only `audioRef` is
    * cleared so the next track can attach without cutting the tail.
