@@ -1,26 +1,15 @@
-import React, { createContext, useContext, useState, useCallback, useRef, ReactNode } from "react";
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect, ReactNode } from "react";
 import { Track } from "@/data/mockData";
 import { unlockMediaPlayback } from "@/lib/mediaUnlock";
-import { enforceQueueRules, queueManager } from "@/services/queueManager";
-import { maybeRefillRadioQueue, seedRadioQueue } from "@/services/radioQueue";
 import { recordListen } from "@/hooks/useListeningHistory";
-import { discoverPlaylistForTrack } from "@/services/playlistDiscovery";
-
-/**
- * Build a playback queue from a freshly discovered playlist.
- * Seed track first, followed by the playlist's other tracks (minus the
- * seed itself and any tracks the caller wants excluded).
- */
-function buildQueueFromDiscovery(seed: Track, tracks: Track[], exclude: Set<string>): Track[] {
-  const out: Track[] = [seed];
-  const seen = new Set<string>([seed.id]);
-  for (const t of tracks) {
-    if (!t?.id || seen.has(t.id) || exclude.has(t.id)) continue;
-    seen.add(t.id);
-    out.push(t);
-  }
-  return out;
-}
+import {
+  buildRadioQueue,
+  expandRadioQueue,
+  loadSession,
+  markPlayed,
+  needsRefill,
+  saveSession,
+} from "@/services/radioEngine";
 
 export interface VideoContent {
   id: string;
