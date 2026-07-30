@@ -312,6 +312,10 @@ export const YouTubePlayer = forwardRef<YouTubePlayerRef, YouTubePlayerProps>(
 
       try {
         playerRef.current!.loadVideoById(videoId);
+        if (startSecondsRef.current > 0) {
+          const at = startSecondsRef.current;
+          setTimeout(() => { try { playerRef.current?.seekTo(at, true); } catch {} }, 400);
+        }
         startProgressTracking();
       } catch (e) {
         console.warn("[YouTubePlayer] loadVideoById failed, reinitializing:", e);
