@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { buildHomeFeed, type HomeFeed } from "@/services/recommendationEngine";
+import { buildHomeFeed, type HomeFeed } from "@/services/homeFeedBuilder";
 import { loadFeed, saveFeed } from "@/services/trackCacheDB";
 import { useOnboardingPrefs } from "./useOnboardingPrefs";
 

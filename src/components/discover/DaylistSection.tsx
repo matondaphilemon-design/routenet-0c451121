@@ -4,7 +4,7 @@ import { Clock, Sparkles, Play } from "lucide-react";
 import { useDeezerSearchTracks } from "@/hooks/useDeezerGenres";
 import { usePlayer } from "@/context/PlayerContext";
 import { toTitleCase } from "@/utils/toTitleCase";
-import { seedRadioQueue } from "@/services/radioQueue";
+import { buildRadioQueue } from "@/services/radioEngine";
 import type { Track } from "@/data/mockData";
 
 interface Daylist {
@@ -92,8 +92,8 @@ function DaylistCard({ daylist, index }: { daylist: Daylist; index: number }) {
     if (tracks.length === 0) return;
     const first = tracks[0];
     setQueue([first], { mode: "radio" });
-    seedRadioQueue(first, tracks, daylist.id)
-      .then((q) => setQueue(q, { mode: "radio" }))
+    buildRadioQueue(first)
+      .then((q) => { if (q.length > 1) setQueue(q, { mode: "radio" }); })
       .catch(() => {});
     play(first);
   };
