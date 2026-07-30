@@ -127,7 +127,10 @@ export function GlobalAudioPlayer() {
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const pipedProgressRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const iframeFailCountRef = useRef(0);
+  // Position (seconds) the iframe should resume from after a stream failover.
+  const resumeAtRef = useRef(0);
   const hasEndedRef = useRef(false); // Prevent double-fire of track end
+
   const crossfadeTriggeredRef = useRef(false);
   const crossfadeFadeRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   // Set when crossfade fired; consumed by the next track's load to fade in.
@@ -260,6 +263,19 @@ export function GlobalAudioPlayer() {
   }, [stopNativeAudioPlayback]);
 
   /**
+   * Hand playback over to the YouTube iframe, resuming at `seconds`.
+   * Used whenever a direct stream dies so a song never stops half-way.
+   */
+  const failoverToIframe = useCallback((videoId: string, seconds: number) => {
+    resumeAtRef.current = seconds > 2 ? seconds : 0;
+    iframeFailCountRef.current = 0;
+    setYoutubeId(videoId);
+    setShowPlayer(true);
+  }, []);
+
+
+
+  /**
    * Promote audioRef to prevAudioRef and begin fading it out over the
    * crossfade window. The element keeps playing — only `audioRef` is
    * cleared so the next track can attach without cutting the tail.
@@ -357,19 +373,47 @@ export function GlobalAudioPlayer() {
 
       audio.addEventListener("ended", handleTrackEnd);
 
+      // If the direct stream dies part-way through (expired/geo-locked CDN
+      // URL, network hiccup), don't kill playback — hand the rest of the
+      // song over to the YouTube iframe at the exact same position so the
+      // track always plays to the end.
       audio.addEventListener("error", () => {
-        console.warn("[Piped Audio] Playback error, marking as iframe-only");
+        const at = audioRef.current?.currentTime || 0;
+        console.warn("[Piped Audio] Playback error — failing over to iframe at", at);
         markAsIframeOnly(videoId);
         stopPipedAudio();
+        failoverToIframe(videoId, at);
       });
 
       await audio.play();
       setUsePipedAudio(true);
 
+      let lastTime = -1;
+      let stalledTicks = 0;
       pipedProgressRef.current = setInterval(() => {
         if (audioRef.current) {
           const ct = audioRef.current.currentTime;
           const dur = audioRef.current.duration;
+
+          // Stall watchdog: playback position frozen for ~8s while we think
+          // we're playing means the stream died silently. Fail over.
+          if (!audioRef.current.paused && !hasEndedRef.current) {
+            if (Math.abs(ct - lastTime) < 0.01) {
+              stalledTicks++;
+              if (stalledTicks > 32) {
+                stalledTicks = 0;
+                console.warn("[Piped Audio] Stalled — failing over to iframe at", ct);
+                markAsIframeOnly(videoId);
+                stopPipedAudio();
+                failoverToIframe(videoId, ct);
+                return;
+              }
+            } else {
+              stalledTicks = 0;
+            }
+          }
+          lastTime = ct;
+
           if (dur > 0) {
             setProgress(ct, dur);
             if (
@@ -393,6 +437,7 @@ export function GlobalAudioPlayer() {
           }
         }
       }, 250);
+
 
       console.log(`✅ Playing via Piped audio: ${track.title}`);
       return true;
@@ -507,6 +552,8 @@ export function GlobalAudioPlayer() {
 
       stopPipedAudio();
       iframeFailCountRef.current = 0;
+      resumeAtRef.current = 0;
+
 
       if ("mediaSession" in navigator) {
         navigator.mediaSession.metadata = new MediaMetadata({
@@ -700,8 +747,10 @@ export function GlobalAudioPlayer() {
       <YouTubePlayer
         ref={playerRef}
         videoId={youtubeId}
+        startSeconds={resumeAtRef.current}
         isPlaying={isPlaying}
         onProgress={handleProgress}
+
         onEnd={handleVideoEnd}
         onReady={() => console.log("[GlobalAudioPlayer] YouTube player ready")}
         onError={handlePlayerError}

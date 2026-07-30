@@ -1,13 +1,32 @@
 /**
  * Piped API fallback chain for direct audio streaming.
- * Tries multiple Piped instances; if all fail, returns null
- * so the caller can fall back to YouTube iframe.
+ * Tries a small pool of healthy Piped instances; if all fail, returns null
+ * so the caller can fall back to the YouTube iframe (which always works).
  */
 
-// Per user request: a SINGLE stable Piped instance. No fan-out, no mirrors,
-// no fallbacks. Keeps the link contract deterministic.
-const PIPED_PRIMARY = "https://pipedapi.kavin.rocks";
-const PIPED_INSTANCES = [PIPED_PRIMARY];
+// Instance pool. Dead instances are put on a cooldown at runtime so a single
+// outage never stalls playback again for the rest of the session.
+const PIPED_INSTANCES = [
+  "https://api.piped.private.coffee",
+  "https://pipedapi.adminforge.de",
+  "https://pipedapi.drgns.space",
+  "https://pipedapi.kavin.rocks",
+];
+
+const INSTANCE_COOLDOWN_MS = 10 * 60 * 1000;
+const deadInstances = new Map<string, number>();
+
+function healthyInstances(): string[] {
+  const now = Date.now();
+  return PIPED_INSTANCES.filter((base) => {
+    const until = deadInstances.get(base);
+    return !until || until < now;
+  });
+}
+
+function markInstanceDead(base: string) {
+  deadInstances.set(base, Date.now() + INSTANCE_COOLDOWN_MS);
+}
 
 // Track IDs that always fail piped — go straight to iframe
 const iframeOnlyIds = new Set<string>(
@@ -35,14 +54,17 @@ export interface PipedAudioResult {
 
 export async function getPipedAudioUrl(
   videoId: string,
-  timeoutMs = 6000
+  timeoutMs = 4000
 ): Promise<PipedAudioResult | null> {
   if (shouldUseIframe(videoId)) {
     console.log(`[Piped] ${videoId} marked iframe-only, skipping`);
     return null;
   }
 
-  for (const base of PIPED_INSTANCES) {
+  const instances = healthyInstances();
+  if (instances.length === 0) return null;
+
+  for (const base of instances) {
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -52,7 +74,10 @@ export async function getPipedAudioUrl(
       });
       clearTimeout(timer);
 
-      if (!res.ok) continue;
+      if (!res.ok) {
+        markInstanceDead(base);
+        continue;
+      }
 
       const data = await res.json();
       // Prefer the highest-bitrate opus/m4a stream that's not DRM/HLS so
@@ -70,12 +95,12 @@ export async function getPipedAudioUrl(
         console.log(`✅ Piped audio via ${base}`);
         return { url: audioStream.url, instance: base };
       }
+      markInstanceDead(base);
     } catch {
-      // Continue to next instance
+      markInstanceDead(base);
     }
   }
 
   console.warn("[Piped] All instances failed for", videoId);
-  markAsIframeOnly(videoId);
   return null;
 }
