@@ -311,9 +311,7 @@ export const YouTubePlayer = forwardRef<YouTubePlayerRef, YouTubePlayerProps>(
       console.log(`[YouTubePlayer] Loading new video: ${videoId} (reusing player)`);
 
       try {
-        const player = playerRef.current;
-        if (!player) return;
-        player.loadVideoById(videoId);
+        playerRef.current!.loadVideoById(videoId);
         if (startSecondsRef.current > 0) {
           const at = startSecondsRef.current;
           setTimeout(() => { try { playerRef.current?.seekTo(at, true); } catch {} }, 400);

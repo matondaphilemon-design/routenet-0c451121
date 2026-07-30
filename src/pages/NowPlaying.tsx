@@ -7,6 +7,7 @@ import { AddToPlaylistDialog } from "@/components/AddToPlaylistDialog";
 import { ShareSheet } from "@/components/ShareSheet";
 import { getCachedYouTubeId, seekGlobalAudio } from "@/components/player/GlobalAudioPlayer";
 import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
 import { usePlayer } from "@/context/PlayerContext";
 import { cn } from "@/lib/utils";
 import { toTitleCase } from "@/utils/toTitleCase";
@@ -121,34 +122,30 @@ export default function NowPlaying() {
         </Button>
       </header>
 
-      {/* Circular artwork and progress ring */}
+      {/* Circular artwork with slow vinyl spin while playing */}
       <section className="relative z-10 flex min-h-0 flex-1 items-center justify-center px-7 py-4">
-        <motion.button
-          type="button"
-          aria-label={`Played ${Math.round(localProgress * 100)} percent`}
-          onClick={() => handleSeek(localProgress < 0.5 ? Math.min(1, localProgress + 0.1) : Math.max(0, localProgress - 0.1))}
+        <motion.div
           initial={{ scale: 0.94, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ type: "spring", stiffness: 200, damping: 24 }}
-          className="relative aspect-square w-[min(68vw,45dvh,300px)] rounded-full p-2"
+          className="relative aspect-square w-[min(68vw,48dvh,300px)] overflow-hidden rounded-full bg-card album-shadow ring-1 ring-border/60"
         >
-          <svg className="pointer-events-none absolute inset-0 h-full w-full -rotate-90" viewBox="0 0 100 100" aria-hidden="true">
-            <circle cx="50" cy="50" r="47" fill="none" stroke="hsl(var(--border) / 0.75)" strokeWidth="2" />
-            <circle cx="50" cy="50" r="47" fill="none" stroke="hsl(var(--primary))" strokeWidth="2.5" strokeLinecap="round" pathLength="100" strokeDasharray="100" strokeDashoffset={100 - localProgress * 100} className="transition-[stroke-dashoffset] duration-300" />
-          </svg>
-          <div className="relative h-full w-full overflow-hidden rounded-full bg-card album-shadow ring-1 ring-border/60">
-            {isResolving ? (
-              <div className="flex h-full w-full items-center justify-center bg-secondary">
-                <Loader2 className="h-10 w-10 animate-spin text-primary" />
-              </div>
-            ) : (
-              <img src={currentTrack.artwork} alt={currentTrack.title} className={`h-full w-full object-cover ${isPlaying ? "animate-vinyl" : "animate-vinyl paused"}`} />
-            )}
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <div className="h-3 w-3 rounded-full bg-background/80 ring-2 ring-border/60" />
+          {isResolving ? (
+            <div className="flex h-full w-full items-center justify-center bg-secondary">
+              <Loader2 className="h-10 w-10 animate-spin text-primary" />
             </div>
+          ) : (
+            <img
+              src={currentTrack.artwork}
+              alt={currentTrack.title}
+              className={`h-full w-full object-cover ${isPlaying ? "animate-vinyl" : "animate-vinyl paused"}`}
+            />
+          )}
+          {/* subtle vinyl center dot */}
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <div className="h-3 w-3 rounded-full bg-background/80 ring-2 ring-border/60" />
           </div>
-        </motion.button>
+        </motion.div>
       </section>
 
       {/* Song info directly beneath the artwork */}
@@ -167,10 +164,13 @@ export default function NowPlaying() {
       </section>
 
       {/* Fixed control deck — always visible, never scrolls */}
-      <section className="relative z-10 shrink-0 space-y-3 px-7 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
-        <div className="flex items-center justify-between text-[11px] font-bold tabular-nums text-muted-foreground">
+      <section className="relative z-10 shrink-0 space-y-4 px-7 pb-7 pt-4">
+        <div>
+          <Slider value={[localProgress * 100]} max={100} step={0.1} onValueChange={([value]) => handleSeek(value / 100)} />
+          <div className="mt-1.5 flex items-center justify-between text-[11px] font-bold tabular-nums text-muted-foreground">
             <span>{formatTime(currentTime)}</span>
             <span>{formatTime(actualDuration)}</span>
+          </div>
         </div>
 
         <div className="flex items-center justify-between">
@@ -191,24 +191,24 @@ export default function NowPlaying() {
           </Button>
         </div>
 
-        <div className="flex items-start justify-center gap-8 border-t border-border/40 pt-3">
+        {/* Secondary actions, anchored at the very bottom */}
+        <div className="flex items-center justify-between border-t border-border/40 pt-3">
           {[
             { icon: Mic, label: "Lyrics", action: () => navigate("/lyrics") },
+            { icon: ListMusic, label: "Queue", action: () => navigate("/queue") },
             { icon: Plus, label: "Save", action: () => setShowPlaylistDialog(true) },
             { icon: Download, label: downloadStatus === "done" ? "Saved" : "Download", action: handleDownload },
+            { icon: Share2, label: "Share", action: () => setShowShareSheet(true) },
           ].map(({ icon: Icon, label, action }) => (
-            <Button
-              variant="ghost"
+            <button
               key={label}
               onClick={action}
               aria-label={label}
-              className="h-auto w-16 flex-col gap-1.5 rounded-none p-0 text-muted-foreground hover:bg-transparent hover:text-primary"
+              className="flex flex-1 flex-col items-center gap-1 rounded-xl py-1 text-muted-foreground transition-colors hover:text-primary active:scale-95"
             >
-              <span className="flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-secondary/70">
-                <Icon className="h-[18px] w-[18px]" />
-              </span>
+              <Icon className="h-[18px] w-[18px]" />
               <span className="text-[10px] font-bold">{label}</span>
-            </Button>
+            </button>
           ))}
         </div>
       </section>

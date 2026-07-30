@@ -75,8 +75,6 @@ const ArtistDetail = () => {
   })) || [];
 
   const albums = deezerAlbums.length > 0 ? deezerAlbums : apiAlbums;
-  const fullAlbums = albums.filter((album) => album.type === "album");
-  const singlesAndEps = albums.filter((album) => album.type !== "album");
 
   const similarArtists: Artist[] = apiData?.similar?.map((s) => ({
     id: s.id, name: s.name, avatar: s.avatar || PLACEHOLDER_ART, monthlyListeners: s.monthlyListeners || 0,
@@ -160,46 +158,16 @@ const ArtistDetail = () => {
         )}
       </motion.section>
 
-      {allTracks.length > 0 && (
-        <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }} className="mb-8 px-4">
-          <h2 className="mb-4 text-xl font-bold">Featured Songs</h2>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {allTracks.slice(0, 6).map((track) => (
-              <button key={`featured-${track.id}`} onClick={() => { setQueue(allTracks); play(track); }} className="min-w-0 text-left">
-                <img src={track.artwork} alt={track.title} className="aspect-square w-full rounded-md object-cover" />
-                <p className="mt-2 truncate text-sm font-semibold text-foreground">{toTitleCase(track.title)}</p>
-                <p className="truncate text-xs text-muted-foreground">{toTitleCase(track.artist)}</p>
-              </button>
-            ))}
-          </div>
-        </motion.section>
-      )}
-
-      {fullAlbums.length > 0 && (
+      {albums.length > 0 && (
         <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="px-4 mb-8">
-          <h2 className="text-xl font-bold mb-4">Albums</h2>
+          <h2 className="text-xl font-bold mb-4">Discography</h2>
           <div className="flex gap-4 overflow-x-auto pb-4 -mx-4 px-4 scrollbar-hide">
-            {fullAlbums.map((album) => (
+            {albums.map((album) => (
               <motion.div key={album.id} whileTap={{ scale: 0.98 }} onClick={() => navigate(`/album/${album.id}`)} className="flex-shrink-0 w-40 cursor-pointer">
                 <img src={album.artwork} alt={album.name} className="w-40 h-40 rounded-md object-cover" onError={(e) => { (e.target as HTMLImageElement).src = PLACEHOLDER_ART; }} />
                 <h3 className="font-semibold mt-2 truncate">{toTitleCase(album.name)}</h3>
                 <p className="text-sm text-muted-foreground">{album.year} · {toTitleCase(album.type)}</p>
               </motion.div>
-            ))}
-          </div>
-        </motion.section>
-      )}
-
-      {singlesAndEps.length > 0 && (
-        <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.45 }} className="mb-8 px-4">
-          <h2 className="mb-4 text-xl font-bold">Singles &amp; EPs</h2>
-          <div className="flex gap-4 overflow-x-auto pb-4 -mx-4 px-4 scrollbar-hide">
-            {singlesAndEps.map((album) => (
-              <button key={album.id} onClick={() => navigate(`/album/${album.id}`)} className="w-40 shrink-0 text-left">
-                <img src={album.artwork} alt={album.name} className="h-40 w-40 rounded-md object-cover" onError={(e) => { (e.target as HTMLImageElement).src = PLACEHOLDER_ART; }} />
-                <h3 className="mt-2 truncate font-semibold">{toTitleCase(album.name)}</h3>
-                <p className="text-sm text-muted-foreground">{album.year} · {toTitleCase(album.type)}</p>
-              </button>
             ))}
           </div>
         </motion.section>

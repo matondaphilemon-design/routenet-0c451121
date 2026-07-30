@@ -4,7 +4,7 @@ import { YouTubePlayer, YouTubePlayerRef, preloadYouTubeAPI } from "./YouTubePla
 import { searchYouTubeForTrack } from "@/hooks/useYouTubePlayback";
 import { Track } from "@/data/mockData";
 import { toast } from "@/hooks/use-toast";
-import { claimUnlockedPlaybackAudio, startBackgroundKeepAlive, stopBackgroundKeepAlive } from "@/lib/mediaUnlock";
+import { startBackgroundKeepAlive, stopBackgroundKeepAlive } from "@/lib/mediaUnlock";
 import { getPipedAudioUrl, shouldUseIframe, markAsIframeOnly } from "@/services/pipedAudio";
 import {
   isNativeAudioPluginAvailable,
@@ -351,8 +351,8 @@ export function GlobalAudioPlayer() {
 
       stopPipedAudio();
 
-      const audio = claimUnlockedPlaybackAudio();
-      audio.src = result.url;
+      const audio = new Audio(result.url);
+      audio.crossOrigin = "anonymous";
       // Background-playback hardening: make sure the element is treated as
       // a real media player, preloads aggressively, and survives tab hide.
       audio.preload = "auto";
@@ -441,9 +441,7 @@ export function GlobalAudioPlayer() {
 
       console.log(`✅ Playing via Piped audio: ${track.title}`);
       return true;
-    } catch (error) {
-      console.warn("[Player] Direct playback failed, using YouTube fallback", error);
-      stopPipedAudio();
+    } catch {
       return false;
     }
   }, [stopPipedAudio, setProgress, handleTrackEnd, beginPrevFadeOut, next, repeat]);
@@ -745,7 +743,7 @@ export function GlobalAudioPlayer() {
   }
 
   return (
-    <div className="pointer-events-none fixed -left-[240px] top-0 h-[200px] w-[200px] overflow-hidden opacity-0" aria-hidden="true">
+    <div className="pointer-events-none fixed left-0 top-0 h-px w-px overflow-hidden opacity-0" aria-hidden="true">
       <YouTubePlayer
         ref={playerRef}
         videoId={youtubeId}

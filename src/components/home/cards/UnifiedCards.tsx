@@ -119,24 +119,6 @@ export function MusicVideoCard({ video, onClick }: { video: FeedVideo; onClick: 
   );
 }
 
-export function CompactMusicVideoCard({ video, onClick }: { video: FeedVideo; onClick: () => void }) {
-  return (
-    <button onClick={onClick} className="group flex w-[78vw] max-w-[330px] items-center gap-3 text-left active:scale-[0.98] sm:w-[46vw] md:w-[34vw]">
-      <div className="relative aspect-video w-28 shrink-0 overflow-hidden rounded-lg bg-card ring-1 ring-border/50">
-        {video.thumbnail ? <img src={video.thumbnail} alt={video.title} loading="lazy" decoding="async" className="h-full w-full object-cover" /> : null}
-        <span className="absolute inset-0 flex items-center justify-center bg-background/35 opacity-0 transition-opacity group-hover:opacity-100">
-          <Play className="h-5 w-5 text-foreground" fill="currentColor" />
-        </span>
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="line-clamp-2 text-[13px] font-bold leading-snug text-foreground">{toTitleCase(video.title)}</p>
-        <p className="mt-1 truncate text-[11px] font-medium text-muted-foreground">{toTitleCase(video.artist)}</p>
-        <p className="text-[10px] tabular-nums text-muted-foreground">{fmtDuration(video.duration)}</p>
-      </div>
-    </button>
-  );
-}
-
 export function ListSkeleton() {
   return (
     <div className="w-[86vw] shrink-0 space-y-2 sm:w-[62vw] md:w-[46vw] lg:w-[34vw] max-w-[420px]">

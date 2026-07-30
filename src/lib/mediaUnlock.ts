@@ -1,5 +1,4 @@
 let mediaPlaybackUnlocked = false;
-let unlockedPlaybackAudio: HTMLAudioElement | null = null;
 
 // Tiny 1-second silent WAV loop to keep audio session alive in background
 const SILENT_AUDIO_DATA_URI =
@@ -17,11 +16,10 @@ let isKeepAliveActive = false;
  * Call this synchronously in click/tap handlers before async playback work.
  */
 export function unlockMediaPlayback() {
-  if (typeof window === "undefined") return;
+  if (mediaPlaybackUnlocked || typeof window === "undefined") return;
 
   try {
-    const audio = unlockedPlaybackAudio || new Audio();
-    unlockedPlaybackAudio = audio;
+    const audio = new Audio();
     audio.preload = "auto";
     audio.muted = true;
     audio.src = SILENT_AUDIO_DATA_URI;
@@ -45,20 +43,6 @@ export function unlockMediaPlayback() {
   } catch {
     // No-op: unsupported browser or blocked context.
   }
-}
-
-/**
- * Reuse the media element that was activated by the user's tap. Android
- * browsers keep autoplay permission on the element, not on audio elements
- * created later after an asynchronous stream lookup.
- */
-export function claimUnlockedPlaybackAudio(): HTMLAudioElement {
-  const audio = unlockedPlaybackAudio || new Audio();
-  unlockedPlaybackAudio = null;
-  audio.muted = false;
-  audio.loop = false;
-  audio.volume = 1;
-  return audio;
 }
 
 /**
