@@ -13,7 +13,8 @@ const PIPED_INSTANCES = [
   "https://piped-api.lunar.icu",
 ];
 
-const TIMEOUT = 7000;
+const TIMEOUT = 8000;
+const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
 
 function vid(url: string | undefined): string {
   if (!url) return "";
@@ -89,6 +90,57 @@ async function relatedFor(videoId: string, depth: number) {
   };
 }
 
+/**
+ * The seed's musical neighbourhood: artists in the same genre / subgenre /
+ * scene. Derived live by the AI model — no hardcoded lists, and the set
+ * varies between requests so sessions stay fresh.
+ */
+async function neighbourArtists(title: string, artist: string): Promise<string[]> {
+  if (!LOVABLE_API_KEY || !artist) return [];
+  try {
+    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      signal: AbortSignal.timeout(12000),
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash",
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a music curator. Given a seed song, return the artists that belong to the same musical world (same genre, subgenre, scene, era and mood). Mix well-known names with rising ones. Reply with JSON only.",
+          },
+          {
+            role: "user",
+            content: `Seed song: "${title}" by ${artist}.\nReturn JSON: {"genre":"<genre/subgenre>","artists":["<14 artist names, most similar first, do not repeat the seed artist>"]}`,
+          },
+        ],
+        temperature: 1,
+        response_format: { type: "json_object" },
+      }),
+    });
+    if (!res.ok) return [];
+    const j = await res.json();
+    const parsed = JSON.parse(j?.choices?.[0]?.message?.content ?? "{}");
+    const list = Array.isArray(parsed?.artists) ? parsed.artists : [];
+    return list.map((a: any) => String(a).trim()).filter(Boolean).slice(0, 14);
+  } catch {
+    return [];
+  }
+}
+
+function shuffle<T>(arr: T[]): T[] {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   const json = (body: unknown, status = 200) =>
@@ -119,17 +171,29 @@ Deno.serve(async (req) => {
         seedInfo = { title: searchHits[0].title, artist: searchHits[0].artist, duration: searchHits[0].duration };
       }
     }
-    if (!videoId) return json({ seed: null, candidates: [] });
-
-    // 2. Related music for the seed.
-    const seedRelated = await relatedFor(videoId, 1);
+    // 2. Related music straight from the seed's YouTube graph.
+    const seedRelated = videoId
+      ? await relatedFor(videoId, 1).catch(() => ({ info: null, candidates: [] as Candidate[] }))
+      : { info: null, candidates: [] as Candidate[] };
     if (seedRelated.info) seedInfo = seedRelated.info;
 
-    // 3. Expand the pool: related-of-related + an artist search, in parallel.
+    const seedTitle = seedInfo?.title || title;
+    const seedArtist = seedInfo?.artist || artist;
+
+    // 3. Expand the pool in parallel:
+    //    a) related-of-related (when the instance serves it),
+    //    b) the seed artist's own catalogue,
+    //    c) live-derived neighbouring artists in the same musical world.
     const fanoutIds = seedRelated.candidates.slice(0, fanout).map((c) => c.videoId);
-    const [deeper, artistHits] = await Promise.all([
-      Promise.all(fanoutIds.map((id) => relatedFor(id, 2).catch(() => ({ info: null, candidates: [] })))),
-      artist ? searchMusic(`${artist} songs`).catch(() => []) : Promise.resolve([]),
+    const neighbours = await neighbourArtists(seedTitle, seedArtist);
+    const [deeper, artistHits, neighbourHits] = await Promise.all([
+      Promise.all(fanoutIds.map((id) => relatedFor(id, 2).catch(() => ({ info: null, candidates: [] as Candidate[] })))),
+      seedArtist ? searchMusic(`${seedArtist} songs`).catch(() => []) : Promise.resolve([]),
+      Promise.all(
+        shuffle(neighbours).slice(0, 10).map((name) =>
+          searchMusic(`${name} songs`).catch(() => []).then((hits) => hits.slice(0, 8)),
+        ),
+      ),
     ]);
 
     const pool = new Map<string, Candidate>();
@@ -140,11 +204,12 @@ Deno.serve(async (req) => {
     };
     seedRelated.candidates.forEach(add);
     deeper.forEach((d) => d.candidates.forEach(add));
-    artistHits.forEach((c) => add({ ...c, depth: 2 }));
-    searchHits.slice(1).forEach((c) => add({ ...c, depth: 3 }));
+    neighbourHits.flat().forEach((c) => add({ ...c, depth: 2 }));
+    artistHits.slice(0, 10).forEach((c) => add({ ...c, depth: 3 }));
+    searchHits.slice(1, 6).forEach((c) => add({ ...c, depth: 3 }));
 
     return json({
-      seed: { videoId, title: seedInfo?.title || title, artist: seedInfo?.artist || artist },
+      seed: { videoId, title: seedTitle, artist: seedArtist },
       candidates: Array.from(pool.values()),
     });
   } catch (e) {
