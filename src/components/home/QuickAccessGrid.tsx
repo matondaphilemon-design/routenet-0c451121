@@ -21,7 +21,7 @@ export function QuickAccessGrid() {
     getUserPlaylists().then((p) => setPlaylists(p || [])).catch(() => setPlaylists([]));
   }, []);
 
-  const { likedSongs } = useLikedSongs();
+  const { songs: likedSongs } = useLikedSongs();
 
   const recentSongs = history.slice(0, 6);
 
