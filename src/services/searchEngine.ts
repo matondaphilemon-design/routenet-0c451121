@@ -66,17 +66,33 @@ function splitTitle(rawTitle: string, channel: string): { title: string; artist:
 // ---------------------------------------------------------------------------
 // Step 1 — Piped (primary, playable)
 // ---------------------------------------------------------------------------
+
+/** Uploads that mimic real releases (covers, AI clones, edits, karaoke). */
+const MIMIC_TITLE = /(karaoke|cover version|\bcover\b|ai cover|ai version|nightcore|sped\s*up|slowed|reverb|8d audio|remake|instrumental|lyrics video|tribute|type beat|mashup|loop|1 hour|hour version|ringtone|reaction)/i;
+const MIMIC_CHANNEL = /(karaoke|lyrics|lyric|ai cover|covers?\b|tribute|fan made|nightcore|instrumental|sped up|topic music|no copyright)/i;
+const OFFICIAL_CHANNEL = /(vevo|- topic|official|records|music)/i;
+
+function isMimic(rawTitle: string, channel: string): boolean {
+  const t = String(rawTitle || "");
+  const c = String(channel || "");
+  if (MIMIC_TITLE.test(t)) return true;
+  if (MIMIC_CHANNEL.test(c) && !/- topic$/i.test(c.trim())) return true;
+  return false;
+}
+
 async function searchPiped(query: string, limit: number): Promise<SearchTrack[]> {
   const { data, error } = await supabase.functions.invoke("youtube", {
-    body: { action: "search", params: { query: `${query} song`, maxResults: limit } },
+    body: { action: "search", params: { query: `${query} song`, maxResults: limit + 10 } },
   });
   if (error) return [];
   const items: any[] = data?.items || data?.results || data?.videos || [];
-  return items
+  const mapped = items
     .filter((v) => v?.id)
+    .filter((v) => !isMimic(v.title, v.channelTitle))
     .map((v) => {
       const { title, artist } = splitTitle(v.title, v.channelTitle);
       const duration = typeof v.duration === "number" ? v.duration : Number(v.duration) || 0;
+      const channel = String(v.channelTitle || "");
       return {
         id: `yt-${v.id}`,
         youtubeId: v.id,
@@ -87,9 +103,25 @@ async function searchPiped(query: string, limit: number): Promise<SearchTrack[]>
         duration,
         playbackSource: "piped",
         enriched: false,
-      } as SearchTrack;
+        // Relevance helpers (not rendered).
+        __official: OFFICIAL_CHANNEL.test(channel),
+        __views: Number(v.views) || 0,
+      } as SearchTrack & { __official: boolean; __views: number };
     });
+
+  // Official uploads and well-known (high-reach) artists first, then relevance.
+  const q = norm(query);
+  return mapped
+    .sort((a: any, b: any) => {
+      const rel = (t: any) =>
+        (norm(t.title).includes(q) || norm(t.artist).includes(q) ? 40 : 0) +
+        (t.__official ? 25 : 0) +
+        Math.min(Math.log10(Math.max(t.__views, 1)) * 4, 24);
+      return rel(b) - rel(a);
+    })
+    .slice(0, limit);
 }
+
 
 // ---------------------------------------------------------------------------
 // Step 2 — Deezer metadata (artwork, album, genre, release date, explicit)
@@ -164,21 +196,9 @@ export async function searchTracksUnified(query: string, limit = 24): Promise<Se
 
   let results = enrich(piped, meta);
 
-  // Piped unavailable → present Deezer results so search is never empty.
-  if (!results.length && meta.length) {
-    results = meta.map((m, i) => ({
-      id: `dz-meta-${i}-${norm(m.title)}`,
-      title: toTitleCase(m.title),
-      artist: toTitleCase(m.artist),
-      album: m.album,
-      artwork: m.artwork,
-      duration: m.duration,
-      explicit: m.explicit,
-      releaseDate: m.releaseDate,
-      playbackSource: "deezer",
-      enriched: true,
-    } as SearchTrack));
-  }
+  // Deezer-only rows are intentionally NOT shown in search: every result must
+  // be playable, so Deezer is used purely as a metadata layer over Piped.
+
 
   // Guarantee artwork.
   results = results.map((t) => ({

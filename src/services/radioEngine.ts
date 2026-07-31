@@ -5,16 +5,27 @@
  *  - Every playback starts a fresh discovery session (no cached API responses).
  *  - Candidates come from Piped search + relatedStreams (with fan-out).
  *  - Candidates are de-duplicated, filtered (non-music / played / already
- *    queued / invalid), ranked for musical relevance, then diversified so no
- *    artist dominates the session.
+ *    queued / invalid / on cooldown), ranked for musical relevance, blended
+ *    (related / popular / discovery) and finally diversified so no artist
+ *    dominates the session.
  *  - The queue refills automatically from the currently playing song.
  */
 import type { Track } from "@/data/mockData";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "@/integrations/supabase/config";
 
-export const INITIAL_QUEUE_SIZE = 50;
-export const REFILL_BATCH_SIZE = 25;
+/** A shorter, tighter queue keeps recommendations relevant and fresh. */
+export const INITIAL_QUEUE_SIZE = 25;
+export const REFILL_BATCH_SIZE = 15;
 export const REFILL_THRESHOLD = 5;
+
+/** Blend of the queue: related · popular in genre · fresh discovery. */
+const MIX_RELATED = 0.4;
+const MIX_POPULAR = 0.35;
+const MIX_DISCOVERY = 0.25;
+
+/** A song can only come back after this long. */
+const COOLDOWN_MS = 6 * 60 * 60 * 1000;
+const COOLDOWN_MAX_ENTRIES = 600;
 
 interface Candidate {
   videoId: string;
@@ -33,6 +44,7 @@ interface Candidate {
 /* ------------------------------------------------------------------ */
 
 const SESSION_KEY = "radio_session_v2";
+const COOLDOWN_KEY = "radio_cooldown_v1";
 
 export interface RadioSession {
   played: string[];          // video IDs played this session
@@ -41,6 +53,32 @@ export interface RadioSession {
 }
 
 let played = new Set<string>();
+
+/** id -> timestamp when it was last played (survives reloads). */
+let cooldown = new Map<string, number>();
+
+function loadCooldown() {
+  try {
+    const raw = localStorage.getItem(COOLDOWN_KEY);
+    if (!raw) return;
+    const entries: [string, number][] = JSON.parse(raw);
+    const now = Date.now();
+    cooldown = new Map(entries.filter(([, ts]) => now - ts < COOLDOWN_MS));
+  } catch { /* noop */ }
+}
+loadCooldown();
+
+function saveCooldown() {
+  try {
+    const entries = [...cooldown.entries()].slice(-COOLDOWN_MAX_ENTRIES);
+    localStorage.setItem(COOLDOWN_KEY, JSON.stringify(entries));
+  } catch { /* noop */ }
+}
+
+function onCooldown(id: string) {
+  const ts = cooldown.get(id);
+  return !!ts && Date.now() - ts < COOLDOWN_MS;
+}
 
 function readSession(): RadioSession | null {
   try {
@@ -72,8 +110,10 @@ export function saveSession(queue: Track[], index: number) {
 
 export function markPlayed(track: Track | null | undefined) {
   const id = videoIdOf(track);
-  if (id) played.add(id);
-  if (track?.id) played.add(track.id);
+  const now = Date.now();
+  if (id) { played.add(id); cooldown.set(id, now); }
+  if (track?.id) { played.add(track.id); cooldown.set(track.id, now); }
+  saveCooldown();
 }
 
 export function hasPlayed(id: string) { return played.has(id); }
@@ -151,8 +191,8 @@ function isMusic(c: Candidate): boolean {
 }
 
 /**
- * Remove duplicates, non-music, unavailable, already-played and
- * already-queued candidates.
+ * Remove duplicates, non-music, unavailable, already-played, cooling-down
+ * and already-queued candidates.
  */
 export function filterCandidates(
   candidates: Candidate[],
@@ -165,6 +205,7 @@ export function filterCandidates(
   for (const c of candidates) {
     if (!isMusic(c)) continue;
     if (seenIds.has(c.videoId) || excludeIds.has(c.videoId) || played.has(c.videoId)) continue;
+    if (onCooldown(c.videoId)) continue;
     const key = `${artistKey(c.artist)}::${normTitle(c.title)}`;
     if (!key.trim() || seenTitles.has(key) || excludeTitles.has(key)) continue;
     seenIds.add(c.videoId);
@@ -181,8 +222,11 @@ export function filterCandidates(
 /**
  * Score a candidate for musical relevance to the seed.
  * Signals: proximity to the seed in the related-graph, artist affinity
- * (seed artist + artists that recur across the pool = the same musical
- * world), official/verified uploads, popularity, and title quality.
+ * (artists that recur across the pool = the same musical world),
+ * official/verified uploads, popularity, and title quality.
+ *
+ * There is deliberately no hardcoded artist list here — relevance comes
+ * purely from the seed's own related graph.
  */
 export function scoreCandidate(
   c: Candidate,
@@ -192,15 +236,16 @@ export function scoreCandidate(
   let score = 0;
 
   // 1. Related-graph proximity — depth 1 = directly related to the seed.
-  score += c.depth <= 1 ? 35 : c.depth === 2 ? 22 : 10;
+  score += c.depth <= 1 ? 35 : c.depth === 2 ? 24 : 14;
 
-  // 2. Artist affinity: same artist, or an artist that keeps recurring in
-  //    the seed's related graph (i.e. the same genre / scene).
+  // 2. Artist affinity: recurring artists define the scene. The seed artist
+  //    gets only a small nudge so the radio does not turn into a single-artist
+  //    playlist.
   const a = artistKey(c.artist);
   const seed = artistKey(seedArtist);
-  if (a && seed && (a === seed || a.includes(seed) || seed.includes(a))) score += 18;
+  if (a && seed && (a === seed || a.includes(seed) || seed.includes(a))) score += 6;
   const recurrence = neighbourhood.get(a) || 0;
-  score += Math.min(recurrence * 6, 24);
+  score += Math.min(recurrence * 5, 20);
 
   // 3. Official / editorial signals.
   if (c.topic) score += 14;            // YouTube "- Topic" = official audio
@@ -216,7 +261,7 @@ export function scoreCandidate(
   if (c.duration >= 120 && c.duration <= 360) score += 6;
 
   // 6. Rotation jitter so repeat sessions never build the same order.
-  score += Math.random() * 14;
+  score += Math.random() * 16;
 
   return score;
 }
@@ -235,29 +280,36 @@ function buildNeighbourhood(candidates: Candidate[]): Map<string, number> {
 /* Diversity                                                            */
 /* ------------------------------------------------------------------ */
 
-const MAX_CONSECUTIVE_SAME_ARTIST = 2;
-const MAX_PER_ARTIST_WINDOW = 3;
-const WINDOW = 12;
+/** Never play the same artist twice within this many tracks. */
+const MIN_ARTIST_GAP = 4;
+/** And never more than this many tracks by one artist per batch. */
+const MAX_PER_ARTIST = 2;
 
 /**
- * Order ranked candidates so artists are mixed naturally: never more than
- * two consecutive tracks by one artist and at most three per rolling window.
+ * Order ranked candidates so artists rotate naturally: the same artist can
+ * never appear twice inside a four-track window, and contributes at most two
+ * tracks to a batch.
  */
 export function diversify(ranked: Candidate[], limit: number, startArtist = ""): Candidate[] {
   const out: Candidate[] = [];
   const pool = ranked.slice();
-  let lastArtist = artistKey(startArtist);
-  let streak = lastArtist ? 1 : 0;
+  const counts = new Map<string, number>();
   let relaxed = false;
 
+  const recentArtists = () => {
+    const window = out.slice(-(MIN_ARTIST_GAP - 1)).map((t) => artistKey(t.artist));
+    if (out.length === 0 && startArtist) window.push(artistKey(startArtist));
+    return new Set(window);
+  };
+
   while (out.length < limit && pool.length) {
+    const recent = recentArtists();
     let pick = -1;
     for (let i = 0; i < pool.length; i++) {
       const a = artistKey(pool[i].artist);
       if (!relaxed) {
-        if (a === lastArtist && streak >= MAX_CONSECUTIVE_SAME_ARTIST) continue;
-        const recent = out.slice(-WINDOW).filter((t) => artistKey(t.artist) === a).length;
-        if (recent >= MAX_PER_ARTIST_WINDOW) continue;
+        if (recent.has(a)) continue;
+        if ((counts.get(a) || 0) >= MAX_PER_ARTIST) continue;
       }
       pick = i;
       break;
@@ -269,11 +321,49 @@ export function diversify(ranked: Candidate[], limit: number, startArtist = ""):
     }
     const [chosen] = pool.splice(pick, 1);
     const a = artistKey(chosen.artist);
-    streak = a === lastArtist ? streak + 1 : 1;
-    lastArtist = a;
+    counts.set(a, (counts.get(a) || 0) + 1);
     out.push(chosen);
   }
   return out;
+}
+
+/* ------------------------------------------------------------------ */
+/* Blending: related · popular · discovery                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Split the ranked pool into three buckets and interleave them so every
+ * queue mixes close matches, genre hits and fresh finds instead of an
+ * endless run of the same few songs.
+ */
+function blend(ranked: Candidate[], limit: number): Candidate[] {
+  if (ranked.length <= limit) return ranked;
+
+  const related = ranked.filter((c) => c.depth <= 1);
+  const rest = ranked.filter((c) => c.depth > 1);
+  const sortedByViews = [...rest].sort((a, b) => (b.views || 0) - (a.views || 0));
+  const popularCut = Math.ceil(sortedByViews.length / 2);
+  const popular = sortedByViews.slice(0, popularCut);
+  const discovery = sortedByViews.slice(popularCut);
+
+  const take = (arr: Candidate[], n: number) => arr.slice(0, Math.max(0, n));
+  const picked = [
+    ...take(related, Math.round(limit * MIX_RELATED)),
+    ...take(popular, Math.round(limit * MIX_POPULAR)),
+    ...take(discovery, Math.round(limit * MIX_DISCOVERY)),
+  ];
+
+  // Top up from whatever is left if a bucket was short.
+  const chosen = new Set(picked.map((c) => c.videoId));
+  for (const c of ranked) {
+    if (picked.length >= limit) break;
+    if (!chosen.has(c.videoId)) { picked.push(c); chosen.add(c.videoId); }
+  }
+
+  // Keep the original relevance ordering inside the blended selection so the
+  // musical flow (energy / tempo continuity) is preserved.
+  const order = new Map(ranked.map((c, i) => [c.videoId, i]));
+  return picked.sort((a, b) => (order.get(a.videoId) ?? 0) - (order.get(b.videoId) ?? 0));
 }
 
 /* ------------------------------------------------------------------ */
@@ -314,7 +404,8 @@ async function buildBatch(seed: Track, existing: Track[], limit: number): Promis
     .map((c) => ({ c, s: scoreCandidate(c, seed.artist, neighbourhood) }))
     .sort((a, b) => b.s - a.s)
     .map((x) => x.c);
-  return diversify(ranked, limit, seed.artist).map(toTrack);
+  const blended = blend(ranked, Math.max(limit * 2, limit + 10));
+  return diversify(blended, limit, seed.artist).map(toTrack);
 }
 
 /** Start a brand-new discovery session seeded by the selected song. */

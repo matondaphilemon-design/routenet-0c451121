@@ -144,16 +144,12 @@ export default function Search() {
   const hasQuery = query.length > 0;
   const hasApiResults = searchResults && (searchResults.artists.length > 0 || searchResults.tracks.length > 0 || searchResults.albums.length > 0);
 
-  // Map and SORT by relevance score
-  const deezerTracks = hasApiResults
-    ? searchResults.tracks.map((t): Track => ({ id: t.id, title: t.title, artist: t.artist, album: t.album || 'Unknown Album', artwork: t.artwork || '', duration: t.duration || 180, youtubeId: (t as any).youtubeId, preview: (t as any).preview }))
-        .sort((a, b) => rankedScore(debouncedQuery, b, taste) - rankedScore(debouncedQuery, a, taste))
-    : [];
+  // Songs come from Piped only (always playable). Deezer stays behind the
+  // scenes as the metadata layer — its own rows are never listed.
+  const filteredTracks: Track[] = ((unifiedTracks || []) as Track[])
+    .slice()
+    .sort((a, b) => rankedScore(debouncedQuery, b, taste) - rankedScore(debouncedQuery, a, taste));
 
-  // Piped results lead (they are guaranteed playable); Deezer results fill in.
-  const filteredTracks: Track[] = (unifiedTracks && unifiedTracks.length
-    ? [...unifiedTracks].sort((a, b) => rankedScore(debouncedQuery, b, taste) - rankedScore(debouncedQuery, a, taste))
-    : deezerTracks) as Track[];
 
   const filteredArtists = hasApiResults
     ? searchResults.artists.map((a): Artist => ({ id: a.id, name: a.name, avatar: a.avatar || '', monthlyListeners: a.monthlyListeners || 0 }))
@@ -233,22 +229,30 @@ export default function Search() {
       <div className="px-4 pt-4">
       {hasQuery ? (
         <div className="space-y-3">
+          {/* Skeletons while the Piped pipeline resolves */}
+          {(loadingUnified || isLoading) && topItems.length === 0 && <SearchSkeletons />}
+
           {/* Unified top results list — sorted by relevance, unlimited scroll */}
 
           {activeFilter === 'all' && topItems.length > 0 && (
             <section>
               <h2 className="mb-2 text-base font-bold text-foreground">Top Results</h2>
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 {topItems.map((entry, i) => {
                   if (entry.type === 'track') {
                     const t = entry.item as Track;
                     return (
                       <motion.div key={`tr-${t.id}`} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i * 0.03, 0.3) }}
-                        className="flex items-center gap-3 rounded-lg p-2 cursor-pointer hover:bg-white/10 active:bg-white/15 transition-colors"
+                        className="group flex items-center gap-3 rounded-2xl border border-white/5 bg-white/[0.03] p-2 cursor-pointer hover:border-primary/30 hover:bg-white/[0.07] active:scale-[0.99] transition-all"
                         onClick={() => {
                           playTrack(t, filteredTracks);
                         }}>
-                        <img src={t.artwork} alt="" loading="lazy" className="h-12 w-12 rounded-lg object-cover flex-shrink-0" />
+                        <div className="relative h-14 w-14 flex-shrink-0 overflow-hidden rounded-xl">
+                          <img src={t.artwork} alt="" loading="lazy" className="h-full w-full object-cover" />
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition-opacity group-hover:opacity-100">
+                            <Music className="h-5 w-5 text-white" />
+                          </div>
+                        </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
                             <p className="truncate text-sm font-semibold text-foreground">{t.title}</p>
@@ -262,6 +266,7 @@ export default function Search() {
                         </div>
                       </motion.div>
                     );
+
                   }
                   if (entry.type === 'artist') {
                     const a = entry.item as Artist;
@@ -344,7 +349,7 @@ export default function Search() {
           {showMixes && (
             <MixesResults query={debouncedQuery} />
           )}
-          {topItems.length === 0 && podcasts.length === 0 && (
+          {topItems.length === 0 && podcasts.length === 0 && !loadingUnified && !isLoading && (
             <div className="py-12 text-center"><p className="text-muted-foreground">No results found for "{query}"</p></div>
           )}
         </div>
@@ -366,7 +371,25 @@ export default function Search() {
 }
 
 /** Mixes tab — YouTube long mixes from the youtube edge function. */
+/** Loading placeholders shown while results stream in. */
+function SearchSkeletons() {
+  return (
+    <div className="space-y-1.5">
+      {Array.from({ length: 8 }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3 rounded-2xl border border-white/5 bg-white/[0.03] p-2">
+          <div className="h-14 w-14 flex-shrink-0 animate-pulse rounded-xl bg-white/10" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <div className="h-3 w-2/3 animate-pulse rounded-full bg-white/10" />
+            <div className="h-2.5 w-1/3 animate-pulse rounded-full bg-white/5" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function MixesResults({ query }: { query: string }) {
+
   const { playVideo } = usePlayer();
   const { data, isLoading } = useQuery({
     queryKey: ["search-mixes", query],
