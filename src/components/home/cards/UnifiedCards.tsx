@@ -119,6 +119,44 @@ export function MusicVideoCard({ video, onClick }: { video: FeedVideo; onClick: 
   );
 }
 
+/**
+ * Compact music-video row used on the homepage: two videos stacked per
+ * column, columns scroll horizontally so ~two columns are visible at a time.
+ */
+export function MusicVideoListItem({ video, onClick }: { video: FeedVideo; onClick: () => void }) {
+  const meta = [fmtViews(video.views), fmtDuration(video.duration)].filter(Boolean).join(" • ");
+  return (
+    <button
+      onClick={onClick}
+      className="group flex w-full items-center gap-2.5 rounded-xl p-1.5 text-left transition-colors hover:bg-white/[0.06] active:scale-[0.99]"
+    >
+      <div className={cn("relative h-[52px] w-[92px] shrink-0", ART)}>
+        {video.thumbnail ? (
+          <img src={video.thumbnail} alt={video.title} loading="lazy" decoding="async" className={IMG} />
+        ) : <div className="h-full w-full bg-secondary" />}
+        <span className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
+          <Play className="h-4 w-4 text-white" fill="currentColor" />
+        </span>
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="line-clamp-2 text-[12px] font-bold leading-tight text-foreground">{toTitleCase(video.title)}</p>
+        <p className="line-clamp-1 text-[10.5px] font-medium text-muted-foreground">
+          {[toTitleCase(video.artist), meta].filter(Boolean).join(" • ")}
+        </p>
+      </div>
+    </button>
+  );
+}
+
+/** A column holding two stacked video rows. */
+export function VideoListColumn({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="w-[78vw] shrink-0 snap-start space-y-1.5 sm:w-[46vw] md:w-[32vw] lg:w-[26vw] max-w-[340px]">
+      {children}
+    </div>
+  );
+}
+
 export function ListSkeleton() {
   return (
     <div className="w-[86vw] shrink-0 space-y-2 sm:w-[62vw] md:w-[46vw] lg:w-[34vw] max-w-[420px]">

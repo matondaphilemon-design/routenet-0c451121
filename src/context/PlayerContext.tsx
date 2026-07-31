@@ -36,6 +36,11 @@ interface PlayerContextType extends PlayerState {
   play: (track?: Track) => void;
   /** Play a track and build a fresh, diverse recommendation queue behind it. */
   playTrack: (track: Track, sourceList?: Track[]) => void;
+  /**
+   * Play an ordered collection (album, playlist, artist top songs) exactly as
+   * listed — track 1 to the last track, no radio injection.
+   */
+  playCollection: (tracks: Track[], startIndex?: number) => void;
   /** The song that will actually play next (matches the queue position). */
   nextTrack: Track | null;
   playVideo: (video: VideoContent) => void;
@@ -52,6 +57,7 @@ interface PlayerContextType extends PlayerState {
   setQueue: (tracks: Track[], opts?: { mode?: "radio" | "fixed" }) => void;
   stopVideo: () => void;
 }
+
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
 
@@ -92,6 +98,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const discoveryToken = useRef(0);
   const extendingRef = useRef(false);
   const hydratedRef = useRef(false);
+  /** "fixed" = album/playlist tracklist order, "radio" = endless discovery. */
+  const queueModeRef = useRef<"radio" | "fixed">("radio");
+
 
   // Queue recovery — restore the previous session on refresh (paused).
   useEffect(() => {
@@ -157,8 +166,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       recordListen(track);
       markPlayed(track);
       setState((prev) => {
-        // Any explicit song selection starts a fresh Piped discovery session.
-        buildRecommendations(track);
+        // Inside an album / playlist / artist tracklist we keep the running
+        // order instead of starting a new radio session.
+        const inFixedQueue =
+          queueModeRef.current === "fixed" && prev.queue.some((t) => t.id === track.id);
+        if (!inFixedQueue) {
+          queueModeRef.current = "radio";
+          buildRecommendations(track);
+        }
         return {
           ...prev,
           currentTrack: track,
@@ -166,7 +181,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           isPlaying: true,
           progress: 0,
           isVideoMode: false,
-          queue: [track],
+          queue: inFixedQueue ? prev.queue : [track],
         };
       });
     } else {
@@ -184,6 +199,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     recordListen(track);
     markPlayed(track);
     shuffleHistoryRef.current.clear();
+    queueModeRef.current = "radio";
     setState((prev) => ({
       ...prev,
       currentTrack: track,
@@ -195,6 +211,33 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }));
     buildRecommendations(track, sourceList);
   }, [buildRecommendations]);
+
+  /**
+   * Ordered collection playback (album / playlist / artist top songs):
+   * the tracklist plays from the chosen song to the last one, in order.
+   */
+  const playCollection = useCallback((tracks: Track[], startIndex = 0) => {
+    const list = dedupeTracks(tracks || []);
+    if (!list.length) return;
+    unlockMediaPlayback();
+    const index = Math.min(Math.max(startIndex, 0), list.length - 1);
+    const track = list[index];
+    recordListen(track);
+    markPlayed(track);
+    shuffleHistoryRef.current.clear();
+    queueModeRef.current = "fixed";
+    discoveryToken.current++; // cancel any in-flight radio build
+    setState((prev) => ({
+      ...prev,
+      queue: list,
+      currentTrack: track,
+      currentVideo: null,
+      isPlaying: true,
+      progress: 0,
+      isVideoMode: false,
+    }));
+  }, []);
+
 
   const playVideo = useCallback((video: VideoContent) => {
     unlockMediaPlayback();
@@ -287,7 +330,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       let nextQueue = prev.queue;
       let pickIndex = nextIndex;
       const currentArtist = artistKey(prev.currentTrack);
-      if (artistKey(prev.queue[nextIndex]) === currentArtist) {
+      // Album / playlist / artist tracklists keep their exact order.
+      if (queueModeRef.current !== "fixed" && artistKey(prev.queue[nextIndex]) === currentArtist) {
         const safeIndex = prev.queue.findIndex((t, i) => i > nextIndex && artistKey(t) !== currentArtist);
         if (safeIndex > nextIndex) {
           const moved = prev.queue[safeIndex];
@@ -300,6 +344,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           pickIndex = nextIndex;
         }
       }
+
 
       const nextTrack = nextQueue[pickIndex];
       recordAdvancedTrack(nextTrack);
@@ -361,8 +406,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const setQueue = useCallback((tracks: Track[], opts?: { mode?: "radio" | "fixed" }) => {
     shuffleHistoryRef.current.clear();
+    // A list handed in explicitly is a tracklist unless it's a radio seed.
+    queueModeRef.current = opts?.mode ?? (tracks.length > 1 ? "fixed" : "radio");
+    if (queueModeRef.current === "fixed") discoveryToken.current++;
     setState((prev) => ({ ...prev, queue: dedupeTracks(tracks) }));
   }, []);
+
 
   // The real "up next" — derived from the current position in the queue so
   // the player never advertises the wrong song.
@@ -381,6 +430,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         nextTrack,
         play,
         playTrack,
+        playCollection,
+
         playVideo,
         pause,
         togglePlay,

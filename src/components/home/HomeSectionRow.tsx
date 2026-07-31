@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { SectionDescriptor, SectionResult } from "@/services/homeFeedEngine";
 import type { Track } from "@/data/mockData";
-import { SongCard, AlbumCard, PlaylistCard, ArtistCard, CardSkeleton, SongListRow, SongListColumn, MusicVideoCard, ListSkeleton, VideoSkeleton } from "./cards/UnifiedCards";
+import { SongCard, AlbumCard, PlaylistCard, ArtistCard, CardSkeleton, SongListRow, SongListColumn, MusicVideoCard, MusicVideoListItem, VideoListColumn, ListSkeleton, VideoSkeleton } from "./cards/UnifiedCards";
 
 interface Props {
   section: SectionDescriptor;
@@ -45,17 +45,24 @@ export function HomeSectionRow({ section, onPlay }: Props) {
   const items = (() => {
     if (!data) return null;
     if (section.kind === "videos" && data.videos?.length) {
-      return data.videos.slice(0, 12).map((v) => (
-        <MusicVideoCard
-          key={v.id}
-          video={v}
-          onClick={() => onPlay(
-            { id: `yt-${v.videoId}`, title: v.title, artist: v.artist, album: "", artwork: v.thumbnail, duration: v.duration || 0, youtubeId: v.videoId } as Track,
-            (data.videos || []).map((x) => ({ id: `yt-${x.videoId}`, title: x.title, artist: x.artist, album: "", artwork: x.thumbnail, duration: x.duration || 0, youtubeId: x.videoId } as Track)),
-          )}
-        />
+      const vids = data.videos.slice(0, 12);
+      const asTrack = (x: typeof vids[number]): Track => ({
+        id: `yt-${x.videoId}`, title: x.title, artist: x.artist, album: "",
+        artwork: x.thumbnail, duration: x.duration || 0, youtubeId: x.videoId,
+      } as Track);
+      const source = vids.map(asTrack);
+      // Two videos stacked per column, six columns across, scrolls right.
+      const columns: typeof vids[] = [];
+      for (let i = 0; i < vids.length; i += 2) columns.push(vids.slice(i, i + 2));
+      return columns.map((col, ci) => (
+        <VideoListColumn key={`vcol-${ci}`}>
+          {col.map((v) => (
+            <MusicVideoListItem key={v.id} video={v} onClick={() => onPlay(asTrack(v), source)} />
+          ))}
+        </VideoListColumn>
       ));
     }
+
     if (section.kind === "songlist" && data.songs?.length) {
       const songs = data.songs.slice(0, 16);
       const columns: Track[][] = [];
@@ -75,7 +82,7 @@ export function HomeSectionRow({ section, onPlay }: Props) {
     }
     if (data.albums?.length) {
       return data.albums.slice(0, 20).map((a) => (
-        <AlbumCard key={a.id} album={a} onClick={() => navigate(`/album/${encodeURIComponent(a.title)}`)} />
+        <AlbumCard key={a.id} album={a} onClick={() => navigate(`/album/${String(a.id).replace("deezer-", "")}`)} />
       ));
     }
     if (data.playlists?.length) {

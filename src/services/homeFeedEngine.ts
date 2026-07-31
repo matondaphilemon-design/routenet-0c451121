@@ -1,15 +1,18 @@
 /**
- * Home Feed Engine — YouTube only.
+ * Home Feed Engine.
  *
- * Produces an ordered list of section descriptors; every section lazy-loads
- * its content from YouTube (videos, playlists, artists, albums). No Deezer
- * request is made anywhere on the homepage.
+ * Songs and music videos come from YouTube (they are what actually plays);
+ * their presentation is enriched with Deezer metadata. Albums and artists
+ * come straight from Deezer, which has the correct covers, names and
+ * artwork. YouTube playlists are not shown on the homepage.
  */
 import type { Track } from "@/data/mockData";
 import { getTopSignalArtists } from "@/services/tasteEvents";
 import {
-  ytSongs, ytTrendingSongs, ytVideos, ytTrendingVideos, ytPlaylists, ytAlbums, ytArtists,
+  ytSongs, ytTrendingSongs, ytVideos, ytTrendingVideos,
 } from "@/services/youtubeHome";
+import { searchAlbums, searchArtists, transformAlbum, transformArtist } from "@/services/deezer";
+import { enrichTracks } from "@/services/metadataEnrichment";
 import type { FeedVideo } from "@/components/home/cards/UnifiedCards";
 
 export type SectionKind = "songs" | "albums" | "playlists" | "artists" | "mix" | "songlist" | "videos";
@@ -33,16 +36,30 @@ export interface SectionDescriptor {
 
 const YEAR = new Date().getFullYear();
 
-// -------- YouTube-backed loaders --------
-const songs = (q: string, limit = 20) => async (): Promise<SectionResult> => ({ songs: await ytSongs(q, limit) });
+/** How many tracks per row get a Deezer metadata upgrade. */
+const ENRICH_LIMIT = 12;
+
+/** Upgrade the visible part of a row with Deezer metadata. */
+async function withDeezer(list: Track[]): Promise<Track[]> {
+  if (!list.length) return list;
+  const head = await enrichTracks(list.slice(0, ENRICH_LIMIT)).catch(() => list.slice(0, ENRICH_LIMIT));
+  return [...head, ...list.slice(ENRICH_LIMIT)];
+}
+
+// -------- Loaders (YouTube playback + Deezer metadata) --------
+const songs = (q: string, limit = 20) => async (): Promise<SectionResult> => ({ songs: await withDeezer(await ytSongs(q, limit)) });
 const trending = (limit = 20) => async (): Promise<SectionResult> => {
   const list = await ytTrendingSongs(limit);
-  return { songs: list.length ? list : await ytSongs(`trending music ${YEAR}`, limit) };
+  return { songs: await withDeezer(list.length ? list : await ytSongs(`trending music ${YEAR}`, limit)) };
 };
-const playlists = (q: string, limit = 20) => async (): Promise<SectionResult> => ({ playlists: await ytPlaylists(q, limit) });
-const albums = (q: string, limit = 20) => async (): Promise<SectionResult> => ({ albums: await ytAlbums(q, limit) });
-const artists = (q: string, limit = 20) => async (): Promise<SectionResult> => ({ artists: await ytArtists(q, limit) });
+const albums = (q: string, limit = 20) => async (): Promise<SectionResult> => ({
+  albums: (await searchAlbums(q, limit)).map(transformAlbum),
+});
+const artists = (q: string, limit = 20) => async (): Promise<SectionResult> => ({
+  artists: (await searchArtists(q, limit)).map(transformArtist),
+});
 const videos = (q: string, limit = 12) => async (): Promise<SectionResult> => ({ videos: await ytVideos(q, limit) });
+
 
 /** Blend several artist searches so no single artist dominates a row. */
 const mixOfArtists = (seeds: string[], suffix: string, limit = 20) => async (): Promise<SectionResult> => {
@@ -115,20 +132,6 @@ function globalSections(input: FeedInput): SectionDescriptor[] {
     { id: "recommended-albums", title: "Recommended Albums", subtitle: primaryArtist ? `Because you follow ${primaryArtist}` : undefined, kind: "albums",
       load: albums(primaryArtist || q("popular"), 20) },
 
-    // ---- Playlists ----
-    { id: "popular-playlists", title: "Popular Playlists", kind: "playlists",
-      load: playlists(q(`official playlist ${YEAR}`), 20) },
-    { id: "editors-picks", title: "Editor's Picks", subtitle: "Curated on YouTube", kind: "playlists",
-      load: playlists(q("essentials official playlist"), 20) },
-    { id: "genre-playlists", title: g1 ? `${g1} Playlists` : "Genre Playlists", kind: "playlists",
-      load: playlists(q("playlist"), 20) },
-    { id: "trending-playlists", title: "Trending Playlists", kind: "playlists",
-      load: playlists(q(`trending hits playlist ${YEAR}`), 20) },
-    { id: "featured-playlists", title: "Featured Playlists", subtitle: "Hand-picked collections", kind: "playlists",
-      load: playlists(q("top hits playlist"), 20) },
-    { id: "artist-playlists", title: primaryArtist ? `${primaryArtist} Official Playlists` : "Official Artist Playlists", kind: "playlists",
-      load: playlists(`${primaryArtist || g1} official artist playlist`, 20) },
-
     // ---- Artists ----
     { id: "popular-artists", title: g1 ? `Popular ${g1} Artists` : "Popular Artists", kind: "artists",
       load: artists(q("top artists"), 20) },
@@ -137,13 +140,14 @@ function globalSections(input: FeedInput): SectionDescriptor[] {
     { id: "artists-you-may-like", title: "Artists You May Like", subtitle: "Discover your next favorite", kind: "artists",
       load: artists(primaryArtist ? `artists like ${primaryArtist}` : q("artists"), 20) },
 
-    // ---- Moods ----
-    { id: "mix-late-night", title: "Late Night", kind: "playlists", load: playlists(q("late night playlist"), 15) },
-    { id: "mix-workout", title: "Workout", kind: "playlists", load: playlists(q("workout playlist"), 15) },
-    { id: "mix-focus", title: "Focus Flow", kind: "playlists", load: playlists(q("focus playlist"), 15) },
-    { id: "mix-chill", title: "Chill & Unwind", kind: "playlists", load: playlists(q("chill playlist"), 15) },
-    { id: "mix-party", title: "Party Mixes", kind: "playlists", load: playlists(q("party mix playlist"), 15) },
-    { id: "mix-weekend", title: "Weekend Vibes", kind: "playlists", load: playlists(q("weekend playlist"), 15) },
+    // ---- Moods (song rows — no YouTube playlists on the homepage) ----
+    { id: "mix-late-night", title: "Late Night", kind: "songs", load: songs(q("late night songs"), 15) },
+    { id: "mix-workout", title: "Workout", kind: "songs", load: songs(q("workout songs"), 15) },
+    { id: "mix-focus", title: "Focus Flow", kind: "songs", load: songs(q("focus songs"), 15) },
+    { id: "mix-chill", title: "Chill & Unwind", kind: "songs", load: songs(q("chill songs"), 15) },
+    { id: "mix-party", title: "Party Mixes", kind: "songs", load: songs(q("party songs"), 15) },
+    { id: "mix-weekend", title: "Weekend Vibes", kind: "songs", load: songs(q("weekend songs"), 15) },
+
     { id: "throwback", title: "Throwback Hits", kind: "songs", load: songs(q("2000s classics"), 20) },
     { id: "viral", title: "Viral Right Now", kind: "songs", load: songs(q(`viral songs ${YEAR}`), 20) },
 
@@ -178,7 +182,7 @@ const ARTIST_SECTION_TEMPLATES: Array<(name: string) => SectionDescriptor> = [
   (name) => ({ id: `art:${name}:similar`, title: `Similar to ${name}`, kind: "artists", load: artists(`artists like ${name}`, 15) }),
   (name) => ({ id: `art:${name}:inspired`, title: `Inspired by ${name}`, kind: "songs", load: songs(`music like ${name}`, 20) }),
   (name) => ({ id: `art:${name}:collabs`, title: `${name} Collaborations`, kind: "songs", load: songs(`${name} feat`, 20) }),
-  (name) => ({ id: `art:${name}:featured-on`, title: `${name} Featured On`, kind: "playlists", load: playlists(`${name} playlist`, 15) }),
+  (name) => ({ id: `art:${name}:albums`, title: `${name} Albums`, kind: "albums", load: albums(name, 15) }),
   (name) => ({ id: `art:${name}:videos`, title: `${name} Music Videos`, kind: "videos", load: videos(`${name} official music video`, 12) }),
 ];
 

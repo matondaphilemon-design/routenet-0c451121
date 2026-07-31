@@ -133,3 +133,23 @@ export function transformAlbum(a: any) {
     releaseDate: a.release_date,
   };
 }
+
+/** Search Deezer albums (used for every album row on the homepage). */
+export async function searchAlbums(query: string, limit = 20) {
+  try {
+    const d = await call("searchAlbum", { query, limit });
+    return d?.data || [];
+  } catch {
+    return [];
+  }
+}
+
+/** Search Deezer artists (used for every artist row on the homepage). */
+export async function searchArtists(query: string, limit = 20) {
+  try {
+    const d = await call("searchArtist", { name: query, limit });
+    return d?.data || [];
+  } catch {
+    return [];
+  }
+}
