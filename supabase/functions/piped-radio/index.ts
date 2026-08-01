@@ -49,6 +49,10 @@ interface Candidate {
   verified: boolean;
   topic: boolean;
   depth: number;
+  /** Upload time in ms epoch (0 when unknown) — used for era bucketing. */
+  uploaded: number;
+  /** Where the candidate came from: related graph, trending, new or classic. */
+  bucket: "related" | "trending" | "recent" | "classic";
 }
 
 function mapStream(s: any, depth: number): Candidate | null {
@@ -65,6 +69,8 @@ function mapStream(s: any, depth: number): Candidate | null {
     verified: !!s?.uploaderVerified,
     topic: /-\s*Topic$/i.test(uploader),
     depth,
+    uploaded: Number(s?.uploaded || 0),
+    bucket: "related",
   };
 }
 
@@ -95,8 +101,11 @@ async function relatedFor(videoId: string, depth: number) {
  * scene. Derived live by the AI model — no hardcoded lists, and the set
  * varies between requests so sessions stay fresh.
  */
-async function neighbourArtists(title: string, artist: string): Promise<string[]> {
-  if (!LOVABLE_API_KEY || !artist) return [];
+async function neighbourArtists(
+  title: string,
+  artist: string,
+): Promise<{ genre: string; artists: string[] }> {
+  if (!LOVABLE_API_KEY || !artist) return { genre: "", artists: [] };
   try {
     const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -111,24 +120,27 @@ async function neighbourArtists(title: string, artist: string): Promise<string[]
           {
             role: "system",
             content:
-              "You are a music curator. Given a seed song, return the artists that belong to the same musical world (same genre, subgenre, scene, era and mood). Mix well-known names with rising ones. Reply with JSON only.",
+              "You are a music curator. Given a seed song, return the artists that belong to the same musical world (same genre, subgenre, scene and mood). Deliberately mix established names, mid-career artists, rising artists, independent artists and regional artists from that same scene. Never repeat the same handful of superstars. Reply with JSON only.",
           },
           {
             role: "user",
-            content: `Seed song: "${title}" by ${artist}.\nReturn JSON: {"genre":"<genre/subgenre>","artists":["<14 artist names, most similar first, do not repeat the seed artist>"]}`,
+            content: `Seed song: "${title}" by ${artist}.\nReturn JSON: {"genre":"<genre/subgenre>","artists":["<24 DISTINCT artist names in that scene: roughly 8 established, 8 rising/independent, 8 regional or lesser-known. Do not repeat the seed artist.>"]}`,
           },
         ],
         temperature: 1,
         response_format: { type: "json_object" },
       }),
     });
-    if (!res.ok) return [];
+    if (!res.ok) return { genre: "", artists: [] };
     const j = await res.json();
     const parsed = JSON.parse(j?.choices?.[0]?.message?.content ?? "{}");
     const list = Array.isArray(parsed?.artists) ? parsed.artists : [];
-    return list.map((a: any) => String(a).trim()).filter(Boolean).slice(0, 14);
+    return {
+      genre: String(parsed?.genre ?? "").trim(),
+      artists: list.map((a: any) => String(a).trim()).filter(Boolean).slice(0, 24),
+    };
   } catch {
-    return [];
+    return { genre: "", artists: [] };
   }
 }
 
