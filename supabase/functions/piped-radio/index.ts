@@ -192,21 +192,46 @@ Deno.serve(async (req) => {
     const seedTitle = seedInfo?.title || title;
     const seedArtist = seedInfo?.artist || artist;
 
-    // 3. Expand the pool in parallel:
+    // 3. Expand the pool in parallel and as widely as possible:
     //    a) related-of-related (when the instance serves it),
     //    b) the seed artist's own catalogue,
-    //    c) live-derived neighbouring artists in the same musical world.
+    //    c) live-derived neighbouring artists in the same musical world,
+    //    d) genre-level trending, brand-new and classic queries so the queue
+    //       can be balanced across eras instead of only "related videos".
     const fanoutIds = seedRelated.candidates.slice(0, fanout).map((c) => c.videoId);
-    const neighbours = await neighbourArtists(seedTitle, seedArtist);
-    const [deeper, artistHits, neighbourHits] = await Promise.all([
-      Promise.all(fanoutIds.map((id) => relatedFor(id, 2).catch(() => ({ info: null, candidates: [] as Candidate[] })))),
-      seedArtist ? searchMusic(`${seedArtist} songs`).catch(() => []) : Promise.resolve([]),
-      Promise.all(
-        shuffle(neighbours).slice(0, 10).map((name) =>
-          searchMusic(`${name} songs`).catch(() => []).then((hits) => hits.slice(0, 8)),
+    const { genre, artists: neighbours } = await neighbourArtists(seedTitle, seedArtist);
+    const g = genre || seedArtist;
+    const YEAR = new Date().getFullYear();
+
+    const [deeper, artistHits, neighbourHits, trendingHits, recentHits, classicHits] =
+      await Promise.all([
+        Promise.all(
+          fanoutIds.map((id) =>
+            relatedFor(id, 2).catch(() => ({ info: null, candidates: [] as Candidate[] })),
+          ),
         ),
-      ),
-    ]);
+        seedArtist ? searchMusic(`${seedArtist} songs`).catch(() => []) : Promise.resolve([]),
+        Promise.all(
+          shuffle(neighbours).slice(0, 16).map((name) =>
+            searchMusic(`${name} songs`).catch(() => []).then((hits) => hits.slice(0, 6)),
+          ),
+        ),
+        Promise.all(
+          [`${g} trending songs ${YEAR}`, `${g} viral songs`, `${g} chart hits ${YEAR}`].map((q) =>
+            searchMusic(q).catch(() => []).then((h) => h.slice(0, 14)),
+          ),
+        ),
+        Promise.all(
+          [`new ${g} songs ${YEAR}`, `${g} new release ${YEAR}`, `${g} new single`].map((q) =>
+            searchMusic(q).catch(() => []).then((h) => h.slice(0, 14)),
+          ),
+        ),
+        Promise.all(
+          [`best ${g} songs of all time`, `classic ${g} hits`, `${g} throwback hits`].map((q) =>
+            searchMusic(q).catch(() => []).then((h) => h.slice(0, 12)),
+          ),
+        ),
+      ]);
 
     const pool = new Map<string, Candidate>();
     const add = (c: Candidate) => {
@@ -217,13 +242,17 @@ Deno.serve(async (req) => {
     seedRelated.candidates.forEach(add);
     deeper.forEach((d) => d.candidates.forEach(add));
     neighbourHits.flat().forEach((c) => add({ ...c, depth: 2 }));
-    artistHits.slice(0, 10).forEach((c) => add({ ...c, depth: 3 }));
+    trendingHits.flat().forEach((c) => add({ ...c, depth: 2, bucket: "trending" }));
+    recentHits.flat().forEach((c) => add({ ...c, depth: 3, bucket: "recent" }));
+    classicHits.flat().forEach((c) => add({ ...c, depth: 3, bucket: "classic" }));
+    artistHits.slice(0, 8).forEach((c) => add({ ...c, depth: 3 }));
     searchHits.slice(1, 6).forEach((c) => add({ ...c, depth: 3 }));
 
     return json({
-      seed: { videoId, title: seedTitle, artist: seedArtist },
+      seed: { videoId, title: seedTitle, artist: seedArtist, genre },
       candidates: Array.from(pool.values()),
     });
+
   } catch (e) {
     return json({ error: String(e), seed: null, candidates: [] }, 200);
   }
