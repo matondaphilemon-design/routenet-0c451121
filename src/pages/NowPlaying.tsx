@@ -12,12 +12,17 @@ import { usePlayer } from "@/context/PlayerContext";
 import { cn } from "@/lib/utils";
 import { toTitleCase } from "@/utils/toTitleCase";
 
+/** Progress ring geometry (viewBox is 100x100). */
+const RING_R = 47;
+const RING_C = 2 * Math.PI * RING_R;
+
 function formatTime(seconds: number): string {
   if (!seconds || seconds <= 0) return "0:00";
   const minutes = Math.floor(seconds / 60);
   const rest = Math.floor(seconds % 60).toString().padStart(2, "0");
   return `${minutes}:${rest}`;
 }
+
 
 export default function NowPlaying() {
   const navigate = useNavigate();
