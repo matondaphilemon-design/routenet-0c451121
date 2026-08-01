@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { usePlayer } from "@/context/PlayerContext";
 import { cn } from "@/lib/utils";
+import { lookupMeta, peekMeta, type DeezerMeta } from "@/services/metadataEnrichment";
+
 import { toTitleCase } from "@/utils/toTitleCase";
 
 /** Progress ring geometry (viewBox is 100x100). */
