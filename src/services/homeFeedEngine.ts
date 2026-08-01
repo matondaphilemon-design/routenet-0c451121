@@ -11,7 +11,10 @@ import { getTopSignalArtists } from "@/services/tasteEvents";
 import {
   ytSongs, ytTrendingSongs, ytVideos, ytTrendingVideos,
 } from "@/services/youtubeHome";
-import { searchAlbums, searchArtists, transformAlbum, transformArtist } from "@/services/deezer";
+import {
+  getChart, getEditorialReleases, searchAlbums, searchArtists,
+  transformAlbum, transformArtist, transformTrack,
+} from "@/services/deezer";
 import { enrichTracks } from "@/services/metadataEnrichment";
 import type { FeedVideo } from "@/components/home/cards/UnifiedCards";
 
@@ -59,6 +62,21 @@ const artists = (q: string, limit = 20) => async (): Promise<SectionResult> => (
   artists: (await searchArtists(q, limit)).map(transformArtist),
 });
 const videos = (q: string, limit = 12) => async (): Promise<SectionResult> => ({ videos: await ytVideos(q, limit) });
+
+/** Real Deezer chart / editorial rows — live data, never mock data. */
+const deezerTrack = (t: any): Track => {
+  const d = transformTrack(t);
+  return {
+    id: d.id, title: d.title, artist: d.artist, album: d.album,
+    artwork: d.artwork, duration: d.duration,
+  } as Track;
+};
+const deezerChart = (limit = 25) => async (): Promise<SectionResult> => ({
+  songs: (await getChart(limit)).map(deezerTrack),
+});
+const deezerReleases = (limit = 20) => async (): Promise<SectionResult> => ({
+  albums: (await getEditorialReleases(limit)).map(transformAlbum),
+});
 
 
 /** Blend several artist searches so no single artist dominates a row. */
@@ -125,7 +143,12 @@ function globalSections(input: FeedInput): SectionDescriptor[] {
       load: songs(q("top hits", g2), 20) },
     { id: "genre-charts", title: g3 ? `${g3} Charts` : "Global Charts", kind: "songs",
       load: songs(q(`charts ${YEAR}`, g3), 20) },
-    { id: "new-releases", title: "New Releases", subtitle: `Fresh on YouTube`, kind: "albums",
+    { id: "deezer-chart", title: "Global Top Chart", subtitle: "The world's biggest songs right now", kind: "songs",
+      load: deezerChart(25) },
+    { id: "deezer-chart-list", title: "Chart Toppers", kind: "songlist", load: deezerChart(16) },
+    { id: "new-releases", title: "New Releases", subtitle: "Just out", kind: "albums",
+      load: deezerReleases(20) },
+    { id: "new-releases-genre", title: g1 ? `New in ${g1}` : "New This Year", kind: "albums",
       load: albums(q(`new ${YEAR}`), 20) },
     { id: "featured-albums", title: "Featured Albums", kind: "albums",
       load: albums(q("best"), 20) },
