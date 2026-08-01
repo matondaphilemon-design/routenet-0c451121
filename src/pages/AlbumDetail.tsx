@@ -16,7 +16,7 @@ import { toast } from "sonner";
 const AlbumDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { play, setQueue } = usePlayer();
+  const { play, setQueue, playCollection } = usePlayer();
   const [isSaved, setIsSaved] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<Record<string, { status: "pending" | "downloading" | "done" | "failed"; percent: number }>>({});
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
@@ -42,11 +42,11 @@ const AlbumDetail = () => {
   usePreloadYouTube(tracks, tracks.length > 0);
 
   const handlePlayAll = () => {
-    if (tracks.length > 0) { setQueue(tracks); play(tracks[0]); }
+    if (tracks.length > 0) playCollection(tracks, 0);
   };
 
   const handleShuffle = () => {
-    if (tracks.length > 0) { const s = [...tracks].sort(() => Math.random() - 0.5); setQueue(s); play(s[0]); }
+    if (tracks.length > 0) playCollection([...tracks].sort(() => Math.random() - 0.5), 0);
   };
 
   const handleSave = () => {
@@ -134,36 +134,54 @@ const AlbumDetail = () => {
         </motion.button>
 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center text-center">
-          <img src={coverUrl} alt={albumData.title} className="w-56 h-56 rounded-lg shadow-2xl object-cover mb-6" />
-          <h1 className="text-2xl font-bold mb-2">{toTitleCase(albumData.title)}</h1>
-          <button onClick={() => navigate(`/artist/${encodeURIComponent(albumData.artist?.name || '')}`)} className="text-sm text-muted-foreground hover:text-primary transition-colors mb-2">
+          <img src={coverUrl} alt={albumData.title} className="mb-6 h-60 w-60 rounded-xl object-cover shadow-2xl" />
+          <h1 className="px-4 text-[26px] font-black leading-tight tracking-tight">{toTitleCase(albumData.title)}</h1>
+          <button
+            onClick={() => navigate(`/artist/${encodeURIComponent(albumData.artist?.name || '')}`)}
+            className="mt-3 flex items-center gap-2 text-sm font-bold text-foreground transition-colors hover:text-primary"
+          >
+            {albumData.artist?.picture_small && (
+              <img src={albumData.artist.picture_small} alt="" className="h-6 w-6 rounded-full object-cover" />
+            )}
             {toTitleCase(albumData.artist?.name || "")}
           </button>
-          <p className="text-xs text-muted-foreground">
-            {albumData.release_date?.split('-')[0]} • {tracks.length} songs • {formatTotalDuration(totalDuration)}
+          <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Album • {albumData.release_date?.split('-')[0]} • {tracks.length} songs • {formatTotalDuration(totalDuration)}
           </p>
         </motion.div>
       </div>
 
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-        className="flex items-center justify-center gap-4 px-4 py-4">
-        <Button onClick={handleSave} variant="ghost" size="icon" className={isSaved ? "text-primary" : "text-muted-foreground"}>
-          <Plus className={`w-6 h-6 ${isSaved ? "rotate-45" : ""} transition-transform`} />
-        </Button>
-        <Button onClick={handleDownloadAlbum} variant="ghost" size="icon" disabled={isDownloadingAll || tracks.length === 0}
-          className="text-muted-foreground hover:text-foreground">
-          {isDownloadingAll ? <Loader2 className="w-5 h-5 animate-spin" /> : <Download className="w-5 h-5" />}
-        </Button>
-        <Button onClick={handlePlayAll} size="lg" disabled={tracks.length === 0}
-          className="rounded-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold h-14 w-14">
-          <Play className="w-6 h-6 fill-current ml-1" />
-        </Button>
-        <Button onClick={handleShuffle} variant="ghost" size="icon" disabled={tracks.length === 0} className="text-muted-foreground hover:text-foreground">
-          <Shuffle className="w-6 h-6" />
-        </Button>
-        <Button onClick={handleSave} variant="ghost" size="icon" className={isSaved ? "text-primary" : "text-muted-foreground"}>
-          <Heart className={`w-6 h-6 ${isSaved ? "fill-current" : ""}`} />
-        </Button>
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+        className="flex items-center justify-between px-5 py-4"
+      >
+        <div className="flex items-center gap-1">
+          <Button onClick={handleSave} variant="ghost" size="icon" aria-label="Save album" className={isSaved ? "text-primary" : "text-muted-foreground"}>
+            <Heart className={`h-6 w-6 ${isSaved ? "fill-current" : ""}`} />
+          </Button>
+          <Button onClick={handleDownloadAlbum} variant="ghost" size="icon" aria-label="Download album" disabled={isDownloadingAll || tracks.length === 0} className="text-muted-foreground hover:text-foreground">
+            {isDownloadingAll ? <Loader2 className="h-5 w-5 animate-spin" /> : <Download className="h-5 w-5" />}
+          </Button>
+          <Button onClick={handleSave} variant="ghost" size="icon" aria-label="Add to library" className={isSaved ? "text-primary" : "text-muted-foreground"}>
+            <Plus className={`h-6 w-6 transition-transform ${isSaved ? "rotate-45" : ""}`} />
+          </Button>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <Button onClick={handleShuffle} variant="ghost" size="icon" aria-label="Shuffle" disabled={tracks.length === 0} className="text-muted-foreground hover:text-foreground">
+            <Shuffle className="h-6 w-6" />
+          </Button>
+          <Button
+            onClick={handlePlayAll}
+            aria-label="Play album"
+            disabled={tracks.length === 0}
+            className="h-14 w-14 rounded-full bg-primary p-0 text-primary-foreground shadow-glow transition-transform hover:bg-primary/90 active:scale-95"
+          >
+            <Play className="ml-1 h-6 w-6 fill-current" />
+          </Button>
+        </div>
       </motion.div>
 
       {/* Track list — scrollable, but no empty space beyond last track */}

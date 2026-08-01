@@ -1,13 +1,15 @@
 /**
  * radioEngine — the ONE recommendation engine in the project.
  *
- * Piped (YouTube) based endless radio:
- *  - Every playback starts a fresh discovery session (no cached API responses).
- *  - Candidates come from Piped search + relatedStreams (with fan-out).
- *  - Candidates are de-duplicated, filtered (non-music / played / already
- *    queued / invalid / on cooldown), ranked for musical relevance, blended
- *    (related / popular / discovery) and finally diversified so no artist
- *    dominates the session.
+ * Piped (YouTube) based endless radio, programmed like a radio station:
+ *  - A large candidate pool is collected fresh for every batch.
+ *  - Candidates are de-duplicated and filtered (non-music, played songs on
+ *    cooldown, artists on cooldown, already queued).
+ *  - Candidates are grouped BY ARTIST first: the engine decides how many
+ *    different artists to introduce before it decides which songs to play.
+ *  - Artists are drawn from four era buckets (closely related · trending ·
+ *    recent releases · classics) and interleaved so the queue never feels
+ *    like one block of old songs or one block of new ones.
  *  - The queue refills automatically from the currently playing song.
  */
 import type { Track } from "@/data/mockData";
@@ -18,14 +20,26 @@ export const INITIAL_QUEUE_SIZE = 25;
 export const REFILL_BATCH_SIZE = 15;
 export const REFILL_THRESHOLD = 5;
 
-/** Blend of the queue: related · popular in genre · fresh discovery. */
-const MIX_RELATED = 0.4;
-const MIX_POPULAR = 0.35;
-const MIX_DISCOVERY = 0.25;
+/** Era blend of every batch: related · trending · recent · classics. */
+const MIX = { related: 0.35, trending: 0.25, recent: 0.2, classic: 0.2 } as const;
+type Bucket = keyof typeof MIX;
+const BUCKET_ORDER: Bucket[] = ["related", "trending", "recent", "classic"];
 
 /** A song can only come back after this long. */
 const COOLDOWN_MS = 6 * 60 * 60 * 1000;
 const COOLDOWN_MAX_ENTRIES = 600;
+
+/**
+ * An artist stays on cooldown until this many OTHER distinct artists have
+ * played. This is the main lever against artist clustering.
+ */
+const ARTIST_COOLDOWN_DISTINCT = 12;
+const ARTIST_HISTORY_MAX = 120;
+
+/** Never play the same artist twice within this many tracks of a batch. */
+const MIN_ARTIST_GAP = 6;
+/** And never more than this many tracks by one artist per batch. */
+const MAX_PER_ARTIST = 2;
 
 interface Candidate {
   videoId: string;
@@ -37,6 +51,8 @@ interface Candidate {
   verified: boolean;
   topic: boolean;
   depth: number;
+  uploaded?: number;
+  bucket?: Bucket;
 }
 
 /* ------------------------------------------------------------------ */
@@ -45,6 +61,7 @@ interface Candidate {
 
 const SESSION_KEY = "radio_session_v2";
 const COOLDOWN_KEY = "radio_cooldown_v1";
+const ARTIST_KEY = "radio_artist_history_v1";
 
 export interface RadioSession {
   played: string[];          // video IDs played this session
@@ -57,13 +74,29 @@ let played = new Set<string>();
 /** id -> timestamp when it was last played (survives reloads). */
 let cooldown = new Map<string, number>();
 
+/** Most-recently-played artists, newest first (survives reloads). */
+let artistHistory: string[] = [];
+
+export const artistKey = (a: string) =>
+  (a || "")
+    .toLowerCase()
+    .replace(/\s*-\s*topic$/i, "")
+    .replace(/\s*(vevo|official)\s*$/i, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
 function loadCooldown() {
   try {
     const raw = localStorage.getItem(COOLDOWN_KEY);
-    if (!raw) return;
-    const entries: [string, number][] = JSON.parse(raw);
-    const now = Date.now();
-    cooldown = new Map(entries.filter(([, ts]) => now - ts < COOLDOWN_MS));
+    if (raw) {
+      const entries: [string, number][] = JSON.parse(raw);
+      const now = Date.now();
+      cooldown = new Map(entries.filter(([, ts]) => now - ts < COOLDOWN_MS));
+    }
+  } catch { /* noop */ }
+  try {
+    const raw = localStorage.getItem(ARTIST_KEY);
+    if (raw) artistHistory = (JSON.parse(raw) as string[]).filter(Boolean);
   } catch { /* noop */ }
 }
 loadCooldown();
@@ -72,12 +105,32 @@ function saveCooldown() {
   try {
     const entries = [...cooldown.entries()].slice(-COOLDOWN_MAX_ENTRIES);
     localStorage.setItem(COOLDOWN_KEY, JSON.stringify(entries));
+    localStorage.setItem(ARTIST_KEY, JSON.stringify(artistHistory.slice(0, ARTIST_HISTORY_MAX)));
   } catch { /* noop */ }
 }
 
 function onCooldown(id: string) {
   const ts = cooldown.get(id);
   return !!ts && Date.now() - ts < COOLDOWN_MS;
+}
+
+/** How many distinct artists have played since this artist last played. */
+export function artistDistance(artist: string): number {
+  const a = artistKey(artist);
+  if (!a) return Infinity;
+  const i = artistHistory.indexOf(a);
+  return i === -1 ? Infinity : i;
+}
+
+/** True while the artist is still inside the diversity cooldown window. */
+export function artistOnCooldown(artist: string): boolean {
+  return artistDistance(artist) < ARTIST_COOLDOWN_DISTINCT;
+}
+
+function rememberArtist(artist: string) {
+  const a = artistKey(artist);
+  if (!a) return;
+  artistHistory = [a, ...artistHistory.filter((x) => x !== a)].slice(0, ARTIST_HISTORY_MAX);
 }
 
 function readSession(): RadioSession | null {
@@ -113,6 +166,7 @@ export function markPlayed(track: Track | null | undefined) {
   const now = Date.now();
   if (id) { played.add(id); cooldown.set(id, now); }
   if (track?.id) { played.add(track.id); cooldown.set(track.id, now); }
+  if (track?.artist) rememberArtist(track.artist);
   saveCooldown();
 }
 
@@ -148,7 +202,7 @@ async function fetchCandidates(seed: Track): Promise<Candidate[]> {
         title: seed.title,
         artist: seed.artist,
         videoId: videoIdOf(seed) || undefined,
-        fanout: 3,
+        fanout: 5,
       }),
     });
     if (!res.ok) return [];
@@ -181,8 +235,6 @@ const normTitle = (t: string) =>
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
 
-const artistKey = (a: string) => (a || "").toLowerCase().replace(/\s+/g, " ").trim();
-
 function isMusic(c: Candidate): boolean {
   if (!c.videoId || !c.title) return false;
   if (c.duration < MIN_DURATION || c.duration > MAX_DURATION) return false;
@@ -192,7 +244,8 @@ function isMusic(c: Candidate): boolean {
 
 /**
  * Remove duplicates, non-music, unavailable, already-played, cooling-down
- * and already-queued candidates.
+ * and already-queued candidates. Artist cooldown is applied later (it is a
+ * soft filter — it relaxes when the pool cannot fill the batch).
  */
 export function filterCandidates(
   candidates: Candidate[],
@@ -216,17 +269,37 @@ export function filterCandidates(
 }
 
 /* ------------------------------------------------------------------ */
+/* Era bucketing                                                        */
+/* ------------------------------------------------------------------ */
+
+const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+
+/**
+ * Which era bucket does a candidate belong to? The backend already tags the
+ * queries it came from; upload age refines the answer for related videos.
+ */
+function bucketOf(c: Candidate): Bucket {
+  if (c.bucket && BUCKET_ORDER.includes(c.bucket)) return c.bucket;
+  const age = c.uploaded ? Date.now() - c.uploaded : 0;
+  if (c.uploaded && age < YEAR_MS) return "recent";
+  if (c.uploaded && age > 6 * YEAR_MS) return "classic";
+  return "related";
+}
+
+/* ------------------------------------------------------------------ */
 /* Ranking                                                              */
 /* ------------------------------------------------------------------ */
 
 /**
- * Score a candidate for musical relevance to the seed.
- * Signals: proximity to the seed in the related-graph, artist affinity
- * (artists that recur across the pool = the same musical world),
- * official/verified uploads, popularity, and title quality.
+ * Score a candidate. Priority order (highest first):
+ *   1. genre / musical relevance to the seed (related-graph proximity)
+ *   2. song not played recently  (already enforced by the cooldown filter)
+ *   3. ARTIST not played recently — the strongest remaining signal
+ *   4. similar musical style (recurring artists = the same scene)
+ *   5. popularity & upload quality
+ *   6. random tie-break
  *
- * There is deliberately no hardcoded artist list here — relevance comes
- * purely from the seed's own related graph.
+ * There is deliberately no hardcoded artist list here.
  */
 export function scoreCandidate(
   c: Candidate,
@@ -236,32 +309,36 @@ export function scoreCandidate(
   let score = 0;
 
   // 1. Related-graph proximity — depth 1 = directly related to the seed.
-  score += c.depth <= 1 ? 35 : c.depth === 2 ? 24 : 14;
+  score += c.depth <= 1 ? 35 : c.depth === 2 ? 26 : 18;
 
-  // 2. Artist affinity: recurring artists define the scene. The seed artist
-  //    gets only a small nudge so the radio does not turn into a single-artist
-  //    playlist.
+  // 3. Artist diversity — the highest-weight signal after relevance.
+  const distance = artistDistance(c.artist);
+  if (distance === Infinity) score += 40;                     // never heard yet
+  else if (distance >= ARTIST_COOLDOWN_DISTINCT) score += 22; // cooled down
+  else score -= 60 - distance * 3;                            // still too soon
+
+  // The seed artist gets no bonus at all — the radio must not become a
+  // single-artist playlist.
   const a = artistKey(c.artist);
   const seed = artistKey(seedArtist);
-  if (a && seed && (a === seed || a.includes(seed) || seed.includes(a))) score += 6;
+  if (a && seed && (a === seed || a.includes(seed) || seed.includes(a))) score -= 10;
+
+  // 4. Scene affinity: artists recurring across the pool define the world.
   const recurrence = neighbourhood.get(a) || 0;
-  score += Math.min(recurrence * 5, 20);
+  score += Math.min(recurrence * 3, 12);
 
-  // 3. Official / editorial signals.
-  if (c.topic) score += 14;            // YouTube "- Topic" = official audio
-  if (c.verified) score += 8;
+  // 5. Official / editorial signals and popularity (log-scaled so mega-hits
+  //    never crowd out discoveries).
+  if (c.topic) score += 12;
+  if (c.verified) score += 6;
   const t = c.title.toLowerCase();
-  if (/official (audio|video|music video)/.test(t)) score += 6;
+  if (/official (audio|video|music video)/.test(t)) score += 5;
   if (/live|remix|cover|mashup|edit\b/.test(t)) score -= 12;
-
-  // 4. Popularity (log-scaled so mega-hits don't crowd out discoveries).
-  score += Math.min(Math.log10(Math.max(c.views, 1)) * 3, 18);
-
-  // 5. Typical song length bonus.
+  score += Math.min(Math.log10(Math.max(c.views, 1)) * 2.5, 15);
   if (c.duration >= 120 && c.duration <= 360) score += 6;
 
   // 6. Rotation jitter so repeat sessions never build the same order.
-  score += Math.random() * 16;
+  score += Math.random() * 14;
 
   return score;
 }
@@ -277,93 +354,136 @@ function buildNeighbourhood(candidates: Candidate[]): Map<string, number> {
 }
 
 /* ------------------------------------------------------------------ */
-/* Diversity                                                            */
+/* Artist-pool-first selection                                          */
 /* ------------------------------------------------------------------ */
 
-/** Never play the same artist twice within this many tracks. */
-const MIN_ARTIST_GAP = 4;
-/** And never more than this many tracks by one artist per batch. */
-const MAX_PER_ARTIST = 2;
-
-/**
- * Order ranked candidates so artists rotate naturally: the same artist can
- * never appear twice inside a four-track window, and contributes at most two
- * tracks to a batch.
- */
-export function diversify(ranked: Candidate[], limit: number, startArtist = ""): Candidate[] {
-  const out: Candidate[] = [];
-  const pool = ranked.slice();
-  const counts = new Map<string, number>();
-  let relaxed = false;
-
-  const recentArtists = () => {
-    const window = out.slice(-(MIN_ARTIST_GAP - 1)).map((t) => artistKey(t.artist));
-    if (out.length === 0 && startArtist) window.push(artistKey(startArtist));
-    return new Set(window);
-  };
-
-  while (out.length < limit && pool.length) {
-    const recent = recentArtists();
-    let pick = -1;
-    for (let i = 0; i < pool.length; i++) {
-      const a = artistKey(pool[i].artist);
-      if (!relaxed) {
-        if (recent.has(a)) continue;
-        if ((counts.get(a) || 0) >= MAX_PER_ARTIST) continue;
-      }
-      pick = i;
-      break;
-    }
-    if (pick === -1) {
-      if (relaxed) break;
-      relaxed = true;
-      continue;
-    }
-    const [chosen] = pool.splice(pick, 1);
-    const a = artistKey(chosen.artist);
-    counts.set(a, (counts.get(a) || 0) + 1);
-    out.push(chosen);
-  }
-  return out;
+interface ArtistGroup {
+  artist: string;
+  songs: Candidate[];   // best first
+  bucket: Bucket;
+  score: number;
+  cooling: boolean;
 }
 
-/* ------------------------------------------------------------------ */
-/* Blending: related · popular · discovery                              */
-/* ------------------------------------------------------------------ */
+/**
+ * Group ranked candidates by artist. The engine asks "how many different
+ * artists can I introduce?" before "which songs should I play?".
+ */
+export function groupByArtist(ranked: Candidate[]): ArtistGroup[] {
+  const groups = new Map<string, ArtistGroup>();
+  for (const c of ranked) {
+    const a = artistKey(c.artist);
+    if (!a) continue;
+    const existing = groups.get(a);
+    if (existing) {
+      if (existing.songs.length < MAX_PER_ARTIST) existing.songs.push(c);
+      continue;
+    }
+    groups.set(a, {
+      artist: a,
+      songs: [c],
+      bucket: bucketOf(c),
+      score: 0,
+      cooling: artistOnCooldown(c.artist),
+    });
+  }
+  // Ranked input order already reflects score, so first seen = best.
+  return [...groups.values()].map((g, i) => ({ ...g, score: -i }));
+}
 
 /**
- * Split the ranked pool into three buckets and interleave them so every
- * queue mixes close matches, genre hits and fresh finds instead of an
- * endless run of the same few songs.
+ * Build the batch: pick DIFFERENT artists first, drawing them from the four
+ * era buckets in a rotating order so trending, new, related and classic
+ * tracks are interleaved rather than grouped.
  */
-function blend(ranked: Candidate[], limit: number): Candidate[] {
-  if (ranked.length <= limit) return ranked;
+export function selectByArtist(groups: ArtistGroup[], limit: number, startArtist = ""): Candidate[] {
+  const startKey = artistKey(startArtist);
+  const eligible = groups.filter((g) => g.artist !== startKey);
 
-  const related = ranked.filter((c) => c.depth <= 1);
-  const rest = ranked.filter((c) => c.depth > 1);
-  const sortedByViews = [...rest].sort((a, b) => (b.views || 0) - (a.views || 0));
-  const popularCut = Math.ceil(sortedByViews.length / 2);
-  const popular = sortedByViews.slice(0, popularCut);
-  const discovery = sortedByViews.slice(popularCut);
+  const pools: Record<Bucket, ArtistGroup[]> = {
+    related: [], trending: [], recent: [], classic: [],
+  };
+  for (const g of eligible) pools[g.bucket].push(g);
 
-  const take = (arr: Candidate[], n: number) => arr.slice(0, Math.max(0, n));
-  const picked = [
-    ...take(related, Math.round(limit * MIX_RELATED)),
-    ...take(popular, Math.round(limit * MIX_POPULAR)),
-    ...take(discovery, Math.round(limit * MIX_DISCOVERY)),
-  ];
+  // Target artist count per bucket.
+  const targets: Record<Bucket, number> = {
+    related: Math.round(limit * MIX.related),
+    trending: Math.round(limit * MIX.trending),
+    recent: Math.round(limit * MIX.recent),
+    classic: Math.round(limit * MIX.classic),
+  };
 
-  // Top up from whatever is left if a bucket was short.
-  const chosen = new Set(picked.map((c) => c.videoId));
-  for (const c of ranked) {
-    if (picked.length >= limit) break;
-    if (!chosen.has(c.videoId)) { picked.push(c); chosen.add(c.videoId); }
+  const out: Candidate[] = [];
+  const used = new Set<string>();
+  const taken: Record<Bucket, number> = { related: 0, trending: 0, recent: 0, classic: 0 };
+
+  const recentWindow = () => new Set(out.slice(-(MIN_ARTIST_GAP - 1)).map((c) => artistKey(c.artist)));
+
+  /** Take the best unused artist from a bucket, honouring the artist cooldown. */
+  const take = (b: Bucket, allowCooling: boolean): boolean => {
+    const window = recentWindow();
+    const pool = pools[b];
+    for (let i = 0; i < pool.length; i++) {
+      const g = pool[i];
+      if (used.has(g.artist) || window.has(g.artist)) continue;
+      if (g.cooling && !allowCooling) continue;
+      pool.splice(i, 1);
+      used.add(g.artist);
+      taken[b]++;
+      out.push(g.songs[0]);
+      return true;
+    }
+    return false;
+  };
+
+  // Pass 1 — strict: one song per artist, cooled-down artists only, rotating
+  // through the era buckets so the flow is curated rather than blocked.
+  let cursor = 0;
+  let guard = 0;
+  while (out.length < limit && guard++ < limit * 12) {
+    const b = BUCKET_ORDER[cursor++ % BUCKET_ORDER.length];
+    if (taken[b] >= targets[b]) {
+      // Bucket satisfied — let the others top up.
+      if (BUCKET_ORDER.every((k) => taken[k] >= targets[k])) break;
+      continue;
+    }
+    if (!take(b, false)) taken[b] = targets[b]; // bucket exhausted
   }
 
-  // Keep the original relevance ordering inside the blended selection so the
-  // musical flow (energy / tempo continuity) is preserved.
-  const order = new Map(ranked.map((c, i) => [c.videoId, i]));
-  return picked.sort((a, b) => (order.get(a.videoId) ?? 0) - (order.get(b.videoId) ?? 0));
+  // Pass 2 — top up from any bucket with any not-yet-used artist.
+  guard = 0;
+  while (out.length < limit && guard++ < limit * 12) {
+    let progressed = false;
+    for (const b of BUCKET_ORDER) {
+      if (out.length >= limit) break;
+      if (take(b, false)) progressed = true;
+    }
+    if (!progressed) break;
+  }
+
+  // Pass 3 — relax the artist cooldown only if the pool genuinely can't fill.
+  guard = 0;
+  while (out.length < limit && guard++ < limit * 12) {
+    let progressed = false;
+    for (const b of BUCKET_ORDER) {
+      if (out.length >= limit) break;
+      if (take(b, true)) progressed = true;
+    }
+    if (!progressed) break;
+  }
+
+  // Pass 4 — last resort: a second song from artists already used, still
+  // never back-to-back.
+  if (out.length < limit) {
+    const seconds = eligible.filter((g) => g.songs.length > 1).map((g) => g.songs[1]);
+    for (const c of seconds) {
+      if (out.length >= limit) break;
+      if (recentWindow().has(artistKey(c.artist))) continue;
+      out.push(c);
+    }
+  }
+
+  return out.slice(0, limit);
 }
 
 /* ------------------------------------------------------------------ */
@@ -404,8 +524,8 @@ async function buildBatch(seed: Track, existing: Track[], limit: number): Promis
     .map((c) => ({ c, s: scoreCandidate(c, seed.artist, neighbourhood) }))
     .sort((a, b) => b.s - a.s)
     .map((x) => x.c);
-  const blended = blend(ranked, Math.max(limit * 2, limit + 10));
-  return diversify(blended, limit, seed.artist).map(toTrack);
+  // Artists first, songs second.
+  return selectByArtist(groupByArtist(ranked), limit, seed.artist).map(toTrack);
 }
 
 /** Start a brand-new discovery session seeded by the selected song. */

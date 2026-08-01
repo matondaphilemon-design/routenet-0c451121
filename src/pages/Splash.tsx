@@ -61,17 +61,20 @@ export default function Splash() {
         transition={{ duration: 0.5, delay: 0.5 }}
         className="mt-8 text-4xl font-black tracking-tight text-foreground"
       >
-        <span className="text-primary">route</span>net
+        Routenet
       </motion.h1>
 
       <motion.p
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.8 }}
-        className="mt-2 text-sm font-medium text-muted-foreground"
+        className="mt-3 max-w-[19rem] text-center text-sm font-medium leading-relaxed text-muted-foreground"
       >
-        Your Sound, Your Vibe
+        Millions of songs. Personalized by AI.
+        <br />
+        Made for the way you listen.
       </motion.p>
+
     </div>
   );
 }

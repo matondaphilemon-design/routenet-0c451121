@@ -77,7 +77,7 @@ async function fetchPlaylist(id: string): Promise<{ playlist: PlaylistData | nul
 export default function PlaylistDetail() {
   const navigate = useNavigate();
   const { id = "" } = useParams();
-  const { play, setQueue } = usePlayer();
+  const { playCollection } = usePlayer();
   const [isLiked, setIsLiked] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearch, setShowSearch] = useState(false);
@@ -115,17 +115,12 @@ export default function PlaylistDetail() {
   usePreloadYouTube(tracks, tracks.length > 0);
 
   const handlePlayAll = () => {
-    if (filteredTracks.length > 0) {
-      setQueue(filteredTracks, { mode: "fixed" });
-      play(filteredTracks[0]);
-    }
+    if (filteredTracks.length > 0) playCollection(filteredTracks, 0);
   };
 
   const handleShuffle = () => {
     if (filteredTracks.length > 0) {
-      const shuffled = [...filteredTracks].sort(() => Math.random() - 0.5);
-      setQueue(shuffled, { mode: "fixed" });
-      play(shuffled[0]);
+      playCollection([...filteredTracks].sort(() => Math.random() - 0.5), 0);
     }
   };
 
@@ -174,23 +169,26 @@ export default function PlaylistDetail() {
   return (
     <div className="custom-scrollbar min-h-screen overflow-y-auto">
       <div className="relative">
-        <div className="absolute inset-0 h-80" style={{ background: "linear-gradient(180deg, hsl(170 100% 45% / 0.15) 0%, hsl(var(--background)) 100%)" }} />
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[420px] overflow-hidden">
+          <img src={cover} alt="" className="h-full w-full scale-110 object-cover opacity-30 blur-[80px]" />
+          <div className="absolute inset-0 bg-gradient-to-b from-background/60 via-background/90 to-background" />
+        </div>
         <motion.header initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="relative flex items-center justify-between px-4 pt-4">
           <button onClick={() => navigate(-1)} className="p-2"><ChevronLeft className="h-6 w-6 text-foreground" /></button>
           <h1 className="text-lg font-bold text-foreground">Playlist</h1>
           <button className="p-2"><MoreHorizontal className="h-5 w-5 text-muted-foreground" /></button>
         </motion.header>
 
-        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.1 }} className="relative mx-auto mt-4 w-48 px-4">
-          <div className="aspect-square overflow-hidden rounded-lg shadow-2xl">
+        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.1 }} className="relative mx-auto mt-4 w-60 max-w-[70vw]">
+          <div className="aspect-square overflow-hidden rounded-xl shadow-2xl">
             <img src={cover} alt={title} className="h-full w-full object-cover" />
           </div>
         </motion.div>
 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="relative mt-6 px-4 text-center">
-          <h1 className="text-2xl font-bold text-foreground">{title}</h1>
+          <h1 className="text-[26px] font-black leading-tight tracking-tight text-foreground">{title}</h1>
           {playlist?.description && <p className="mt-1 text-sm text-muted-foreground">{playlist.description}</p>}
-          <p className="mt-2 text-xs text-muted-foreground">{tracks.length} songs • {totalMinutes} min • {creator}</p>
+          <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Playlist • {creator} • {tracks.length} songs • {totalMinutes} min</p>
         </motion.div>
       </div>
 

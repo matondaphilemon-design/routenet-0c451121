@@ -10,7 +10,13 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { usePlayer } from "@/context/PlayerContext";
 import { cn } from "@/lib/utils";
+import { lookupMeta, peekMeta, type DeezerMeta } from "@/services/metadataEnrichment";
+
 import { toTitleCase } from "@/utils/toTitleCase";
+
+/** Progress ring geometry (viewBox is 100x100). */
+const RING_R = 47;
+const RING_C = 2 * Math.PI * RING_R;
 
 function formatTime(seconds: number): string {
   if (!seconds || seconds <= 0) return "0:00";
@@ -18,6 +24,7 @@ function formatTime(seconds: number): string {
   const rest = Math.floor(seconds % 60).toString().padStart(2, "0");
   return `${minutes}:${rest}`;
 }
+
 
 export default function NowPlaying() {
   const navigate = useNavigate();
@@ -28,8 +35,29 @@ export default function NowPlaying() {
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [showPlaylistDialog, setShowPlaylistDialog] = useState(false);
   const [downloadStatus, setDownloadStatus] = useState<"idle" | "downloading" | "done" | "failed">("idle");
+  /** Deezer metadata for the current song (title / artist / album / hi-res art). */
+  const [meta, setMeta] = useState<DeezerMeta | null>(null);
 
   useEffect(() => setLocalProgress(progress), [progress]);
+
+  // Now Playing shows Deezer metadata when it resolves; YouTube data is the fallback.
+  useEffect(() => {
+    if (!currentTrack) { setMeta(null); return; }
+    let alive = true;
+    setMeta(peekMeta(currentTrack.title, currentTrack.artist) ?? null);
+    lookupMeta(currentTrack.title, currentTrack.artist)
+      .then((m) => { if (alive) setMeta(m); })
+      .catch(() => undefined);
+    return () => { alive = false; };
+  }, [currentTrack?.title, currentTrack?.artist]);
+
+  const display = useMemo(() => ({
+    title: meta?.title || currentTrack?.title || "",
+    artist: meta?.artist || currentTrack?.artist || "",
+    album: meta?.album || currentTrack?.album || "",
+    artwork: meta?.artwork || currentTrack?.artwork || "",
+  }), [meta, currentTrack]);
+
 
   useEffect(() => {
     const compute = () => {
@@ -122,28 +150,45 @@ export default function NowPlaying() {
         </Button>
       </header>
 
-      {/* Circular artwork with slow vinyl spin while playing */}
+      {/* Circular artwork wrapped in a live progress ring */}
       <section className="relative z-10 flex min-h-0 flex-1 items-center justify-center px-7 py-4">
         <motion.div
           initial={{ scale: 0.94, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ type: "spring", stiffness: 200, damping: 24 }}
-          className="relative aspect-square w-[min(68vw,48dvh,300px)] overflow-hidden rounded-full bg-card album-shadow ring-1 ring-border/60"
+          className="relative aspect-square w-[min(72vw,50dvh,320px)]"
         >
-          {isResolving ? (
-            <div className="flex h-full w-full items-center justify-center bg-secondary">
-              <Loader2 className="h-10 w-10 animate-spin text-primary" />
-            </div>
-          ) : (
-            <img
-              src={currentTrack.artwork}
-              alt={currentTrack.title}
-              className={`h-full w-full object-cover ${isPlaying ? "animate-vinyl" : "animate-vinyl paused"}`}
+          <svg viewBox="0 0 100 100" className="absolute inset-0 h-full w-full -rotate-90">
+            <circle cx="50" cy="50" r={RING_R} fill="none" stroke="hsl(var(--foreground) / 0.14)" strokeWidth="2.5" />
+            <circle
+              cx="50"
+              cy="50"
+              r={RING_R}
+              fill="none"
+              stroke="hsl(var(--primary))"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeDasharray={RING_C}
+              strokeDashoffset={RING_C * (1 - Math.min(Math.max(localProgress, 0), 1))}
+              className="transition-[stroke-dashoffset] duration-300 ease-linear"
             />
-          )}
-          {/* subtle vinyl center dot */}
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <div className="h-3 w-3 rounded-full bg-background/80 ring-2 ring-border/60" />
+          </svg>
+
+          <div className="absolute inset-[7%] overflow-hidden rounded-full bg-card album-shadow ring-1 ring-border/60">
+            {isResolving ? (
+              <div className="flex h-full w-full items-center justify-center bg-secondary">
+                <Loader2 className="h-10 w-10 animate-spin text-primary" />
+              </div>
+            ) : (
+              <img
+                src={display.artwork}
+                alt={display.title}
+                className={`h-full w-full object-cover ${isPlaying ? "animate-vinyl" : "animate-vinyl paused"}`}
+              />
+            )}
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <div className="h-3 w-3 rounded-full bg-background/80 ring-2 ring-border/60" />
+            </div>
           </div>
         </motion.div>
       </section>
@@ -152,9 +197,10 @@ export default function NowPlaying() {
       <section className="relative z-10 shrink-0 px-7">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
-            <h1 className="line-clamp-1 text-[22px] font-black leading-tight tracking-tight text-foreground">{toTitleCase(currentTrack.title)}</h1>
-            <button onClick={() => navigate(`/artist/${encodeURIComponent(currentTrack.artist)}`)} className="mt-1 line-clamp-1 text-left text-sm font-bold text-muted-foreground transition-colors hover:text-primary">
-              {toTitleCase(currentTrack.artist)}
+            <h1 className="line-clamp-1 text-[22px] font-black leading-tight tracking-tight text-foreground">{toTitleCase(display.title)}</h1>
+            <button onClick={() => navigate(`/artist/${encodeURIComponent(display.artist)}`)} className="mt-1 line-clamp-1 text-left text-sm font-bold text-muted-foreground transition-colors hover:text-primary">
+              {toTitleCase(display.artist)}
+              {display.album ? <span className="text-muted-foreground/60"> · {toTitleCase(display.album)}</span> : null}
             </button>
           </div>
           <Button variant="ghost" size="icon" onClick={handleToggleLike} aria-label="Like" className={cn("mt-1 shrink-0 rounded-full bg-secondary/70 text-muted-foreground hover:bg-muted", liked && "text-primary")}>
@@ -164,7 +210,7 @@ export default function NowPlaying() {
       </section>
 
       {/* Fixed control deck — always visible, never scrolls */}
-      <section className="relative z-10 shrink-0 space-y-4 px-7 pb-7 pt-4">
+      <section className="relative z-10 shrink-0 space-y-5 px-7 pb-7 pt-4">
         <div>
           <Slider value={[localProgress * 100]} max={100} step={0.1} onValueChange={([value]) => handleSeek(value / 100)} />
           <div className="mt-1.5 flex items-center justify-between text-[11px] font-bold tabular-nums text-muted-foreground">
@@ -174,44 +220,53 @@ export default function NowPlaying() {
         </div>
 
         <div className="flex items-center justify-between">
-          <Button variant="ghost" size="icon" onClick={toggleShuffle} aria-label="Shuffle" className={cn("h-10 w-10 rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground", shuffle && "text-primary")}>
-            <Shuffle className="h-[18px] w-[18px]" />
+          <Button variant="ghost" size="icon" onClick={toggleShuffle} aria-label="Shuffle" className={cn("h-11 w-11 rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground", shuffle && "text-primary")}>
+            <Shuffle className="h-[19px] w-[19px]" />
           </Button>
           <Button variant="ghost" size="icon" onClick={previous} aria-label="Previous" className="h-12 w-12 rounded-full text-foreground hover:bg-secondary">
             <SkipBack className="h-6 w-6" fill="currentColor" />
           </Button>
-          <Button onClick={togglePlay} disabled={isResolving} aria-label={isPlaying ? "Pause" : "Play"} className="h-16 w-16 rounded-full bg-primary p-0 text-primary-foreground transition-transform hover:bg-primary/90 active:scale-95">
-            {isResolving ? <Loader2 className="h-7 w-7 animate-spin" /> : isPlaying ? <Pause className="h-7 w-7" fill="currentColor" /> : <Play className="ml-0.5 h-7 w-7" fill="currentColor" />}
+          <Button onClick={togglePlay} disabled={isResolving} aria-label={isPlaying ? "Pause" : "Play"} className="h-[68px] w-[68px] rounded-full bg-primary p-0 text-primary-foreground shadow-glow transition-transform hover:bg-primary/90 active:scale-95">
+            {isResolving ? <Loader2 className="h-7 w-7 animate-spin" /> : isPlaying ? <Pause className="h-8 w-8" fill="currentColor" /> : <Play className="ml-0.5 h-8 w-8" fill="currentColor" />}
           </Button>
           <Button variant="ghost" size="icon" onClick={next} aria-label="Next" className="h-12 w-12 rounded-full text-foreground hover:bg-secondary">
             <SkipForward className="h-6 w-6" fill="currentColor" />
           </Button>
-          <Button variant="ghost" size="icon" onClick={toggleRepeat} aria-label="Repeat" className={cn("h-10 w-10 rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground", repeat !== "off" && "text-primary")}>
-            {repeat === "one" ? <Repeat1 className="h-[18px] w-[18px]" /> : <Repeat className="h-[18px] w-[18px]" />}
+          <Button variant="ghost" size="icon" onClick={toggleRepeat} aria-label="Repeat" className={cn("h-11 w-11 rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground", repeat !== "off" && "text-primary")}>
+            {repeat === "one" ? <Repeat1 className="h-[19px] w-[19px]" /> : <Repeat className="h-[19px] w-[19px]" />}
           </Button>
         </div>
 
-        {/* Secondary actions, anchored at the very bottom */}
-        <div className="flex items-center justify-between border-t border-border/40 pt-3">
+        {/* Secondary actions — translucent pill bar */}
+        <div className="flex items-center justify-around rounded-full border border-border/40 bg-foreground/[0.07] px-2 py-2 backdrop-blur-xl">
           {[
-            { icon: Mic, label: "Lyrics", action: () => navigate("/lyrics") },
-            { icon: ListMusic, label: "Queue", action: () => navigate("/queue") },
-            { icon: Plus, label: "Save", action: () => setShowPlaylistDialog(true) },
-            { icon: Download, label: downloadStatus === "done" ? "Saved" : "Download", action: handleDownload },
-            { icon: Share2, label: "Share", action: () => setShowShareSheet(true) },
-          ].map(({ icon: Icon, label, action }) => (
+            { icon: Mic, label: "Lyrics", action: () => navigate("/lyrics"), active: false },
+            { icon: Plus, label: "Save", action: () => setShowPlaylistDialog(true), active: false },
+            {
+              icon: downloadStatus === "downloading" ? Loader2 : Download,
+              label: downloadStatus === "done" ? "Saved" : "Download",
+              action: handleDownload,
+              active: downloadStatus === "done",
+              spin: downloadStatus === "downloading",
+            },
+            { icon: ListMusic, label: "Queue", action: () => navigate("/queue"), active: false },
+            { icon: Share2, label: "Share", action: () => setShowShareSheet(true), active: false },
+          ].map(({ icon: Icon, label, action, active, spin }: any) => (
             <button
               key={label}
               onClick={action}
               aria-label={label}
-              className="flex flex-1 flex-col items-center gap-1 rounded-xl py-1 text-muted-foreground transition-colors hover:text-primary active:scale-95"
+              className={cn(
+                "flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground transition-all hover:bg-foreground/10 hover:text-foreground active:scale-90",
+                active && "bg-primary/15 text-primary",
+              )}
             >
-              <Icon className="h-[18px] w-[18px]" />
-              <span className="text-[10px] font-bold">{label}</span>
+              <Icon className={cn("h-[19px] w-[19px]", spin && "animate-spin")} />
             </button>
           ))}
         </div>
       </section>
+
 
 
       <AnimatePresence>
