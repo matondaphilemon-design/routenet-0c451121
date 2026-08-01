@@ -33,8 +33,29 @@ export default function NowPlaying() {
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [showPlaylistDialog, setShowPlaylistDialog] = useState(false);
   const [downloadStatus, setDownloadStatus] = useState<"idle" | "downloading" | "done" | "failed">("idle");
+  /** Deezer metadata for the current song (title / artist / album / hi-res art). */
+  const [meta, setMeta] = useState<DeezerMeta | null>(null);
 
   useEffect(() => setLocalProgress(progress), [progress]);
+
+  // Now Playing shows Deezer metadata when it resolves; YouTube data is the fallback.
+  useEffect(() => {
+    if (!currentTrack) { setMeta(null); return; }
+    let alive = true;
+    setMeta(peekMeta(currentTrack.title, currentTrack.artist) ?? null);
+    lookupMeta(currentTrack.title, currentTrack.artist)
+      .then((m) => { if (alive) setMeta(m); })
+      .catch(() => undefined);
+    return () => { alive = false; };
+  }, [currentTrack?.title, currentTrack?.artist]);
+
+  const display = useMemo(() => ({
+    title: meta?.title || currentTrack?.title || "",
+    artist: meta?.artist || currentTrack?.artist || "",
+    album: meta?.album || currentTrack?.album || "",
+    artwork: meta?.artwork || currentTrack?.artwork || "",
+  }), [meta, currentTrack]);
+
 
   useEffect(() => {
     const compute = () => {
