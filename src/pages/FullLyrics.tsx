@@ -5,7 +5,7 @@
  */
 import { useMemo, useRef, useEffect, useState, useCallback } from "react";
 import { motion } from "framer-motion";
-import { ChevronDown, Music2, Pause, Play, Loader2, RefreshCw } from "lucide-react";
+import { ChevronDown, Music2, Loader2, RefreshCw } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { usePlayer } from "@/context/PlayerContext";
 import { useQuery } from "@tanstack/react-query";
@@ -38,7 +38,7 @@ function parseSyncedLyrics(synced: string): LyricLine[] {
 
 export default function FullLyrics() {
   const navigate = useNavigate();
-  const { progress, duration, currentTrack, isPlaying, togglePlay } = usePlayer();
+  const { progress, duration, currentTrack } = usePlayer();
   const activeRef = useRef<HTMLParagraphElement>(null);
   const title = currentTrack?.title || "";
   const artist = currentTrack?.artist || "";
