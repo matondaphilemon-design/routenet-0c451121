@@ -199,7 +199,7 @@ export function videoIdOf(track?: Track | null): string {
 /* Fetching (always fresh — no cache)                                   */
 /* ------------------------------------------------------------------ */
 
-async function fetchCandidates(seed: Track): Promise<Candidate[]> {
+async function fetchOne(seed: { title: string; artist: string; videoId?: string }, fanout: number): Promise<Candidate[]> {
   try {
     const res = await fetch(`${SUPABASE_URL}/functions/v1/piped-radio`, {
       method: "POST",
@@ -212,8 +212,8 @@ async function fetchCandidates(seed: Track): Promise<Candidate[]> {
       body: JSON.stringify({
         title: seed.title,
         artist: seed.artist,
-        videoId: videoIdOf(seed) || undefined,
-        fanout: 5,
+        videoId: seed.videoId,
+        fanout,
       }),
     });
     if (!res.ok) return [];
@@ -223,6 +223,27 @@ async function fetchCandidates(seed: Track): Promise<Candidate[]> {
     return [];
   }
 }
+
+/**
+ * A 100-song session needs a much wider pool than a single related-video
+ * graph, so the selected song is fanned out alongside the listener's
+ * strongest taste signals.
+ */
+async function fetchCandidates(seed: Track, wide: boolean): Promise<Candidate[]> {
+  const extraSeeds = wide
+    ? getTopSignalArtists(6)
+        .filter((a) => artistKey(a) !== artistKey(seed.artist))
+        .slice(0, 3)
+        .map((artist) => ({ title: `${artist} best songs`, artist }))
+    : [];
+
+  const lists = await Promise.all([
+    fetchOne({ title: seed.title, artist: seed.artist, videoId: videoIdOf(seed) || undefined }, wide ? 8 : 5),
+    ...extraSeeds.map((s) => fetchOne(s, 4)),
+  ]);
+  return lists.flat();
+}
+
 
 /* ------------------------------------------------------------------ */
 /* Filtering                                                            */
