@@ -1,44 +1,54 @@
 /**
- * radioEngine — the ONE recommendation engine in the project.
+ * Recommendation Engine V2 — the ONE recommendation engine in the project.
  *
- * Piped (YouTube) based endless radio, programmed like a radio station:
- *  - A large candidate pool is collected fresh for every batch.
- *  - Candidates are de-duplicated and filtered (non-music, played songs on
- *    cooldown, artists on cooldown, already queued).
- *  - Candidates are grouped BY ARTIST first: the engine decides how many
- *    different artists to introduce before it decides which songs to play.
- *  - Artists are drawn from four era buckets (closely related · trending ·
- *    recent releases · classics) and interleaved so the queue never feels
- *    like one block of old songs or one block of new ones.
- *  - The queue refills automatically from the currently playing song.
+ * It behaves like a curator rather than a "related videos" list:
+ *  - Selecting a song starts a SESSION and builds ONE 100-song queue.
+ *  - The queue is only rebuilt when the user picks a new song, fewer than 10
+ *    tracks remain, or the session expires.
+ *  - Candidates come from a wide multi-seed pool (the selected song plus the
+ *    listener's strongest taste signals).
+ *  - Songs and artists respect persistent cooldowns (playedSongs /
+ *    recentArtists / queueHistory in localStorage).
+ *  - Every queue is balanced across six roles — closely related, trending,
+ *    new releases, fan favourites, classics and hidden gems — and ordered
+ *    like a DJ set rather than shuffled.
  */
 import type { Track } from "@/data/mockData";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "@/integrations/supabase/config";
+import { getTopSignalArtists, getRecentSignals } from "@/services/tasteEvents";
 
-/** A shorter, tighter queue keeps recommendations relevant and fresh. */
-export const INITIAL_QUEUE_SIZE = 25;
-export const REFILL_BATCH_SIZE = 15;
-export const REFILL_THRESHOLD = 5;
+/** One manual selection == one 100-song listening session. */
+export const INITIAL_QUEUE_SIZE = 100;
+export const REFILL_BATCH_SIZE = 40;
+export const REFILL_THRESHOLD = 10;
+/** A session goes stale after this long and the next advance rebuilds it. */
+export const SESSION_TTL_MS = 3 * 60 * 60 * 1000;
 
-/** Era blend of every batch: related · trending · recent · classics. */
-const MIX = { related: 0.35, trending: 0.25, recent: 0.2, classic: 0.2 } as const;
+/**
+ * Target composition of every queue.
+ * related 30 · trending 20 · recent 15 · fanfav 15 · classic 10 · hidden 10
+ */
+const MIX = {
+  related: 0.3, trending: 0.2, recent: 0.15, fanfav: 0.15, classic: 0.1, hidden: 0.1,
+} as const;
 type Bucket = keyof typeof MIX;
-const BUCKET_ORDER: Bucket[] = ["related", "trending", "recent", "classic"];
+/** DJ ordering: the cycle the queue is laid out in, not a random shuffle. */
+const BUCKET_ORDER: Bucket[] = ["related", "trending", "fanfav", "recent", "classic", "hidden"];
 
 /** A song can only come back after this long. */
 const COOLDOWN_MS = 6 * 60 * 60 * 1000;
-const COOLDOWN_MAX_ENTRIES = 600;
+const COOLDOWN_MAX_ENTRIES = 1200;
 
 /**
  * An artist stays on cooldown until this many OTHER distinct artists have
  * played. This is the main lever against artist clustering.
  */
 const ARTIST_COOLDOWN_DISTINCT = 12;
-const ARTIST_HISTORY_MAX = 120;
+const ARTIST_HISTORY_MAX = 160;
 
 /** Never play the same artist twice within this many tracks of a batch. */
-const MIN_ARTIST_GAP = 6;
-/** And never more than this many tracks by one artist per batch. */
+const MIN_ARTIST_GAP = 8;
+/** And never more than this many tracks by one artist per queue. */
 const MAX_PER_ARTIST = 2;
 
 interface Candidate {
@@ -52,8 +62,9 @@ interface Candidate {
   topic: boolean;
   depth: number;
   uploaded?: number;
-  bucket?: Bucket;
+  bucket?: Bucket | "related" | "trending" | "recent" | "classic";
 }
+
 
 /* ------------------------------------------------------------------ */
 /* Session state (lightweight — IDs, queue, position. Never API bodies) */
