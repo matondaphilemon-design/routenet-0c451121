@@ -412,30 +412,26 @@ export function groupByArtist(ranked: Candidate[]): ArtistGroup[] {
 }
 
 /**
- * Build the batch: pick DIFFERENT artists first, drawing them from the four
- * era buckets in a rotating order so trending, new, related and classic
- * tracks are interleaved rather than grouped.
+ * Build the batch: pick DIFFERENT artists first, drawing them from the six
+ * role buckets in a rotating DJ order so related, trending, fan-favourite,
+ * new, classic and hidden-gem tracks are interleaved rather than grouped.
  */
 export function selectByArtist(groups: ArtistGroup[], limit: number, startArtist = ""): Candidate[] {
   const startKey = artistKey(startArtist);
   const eligible = groups.filter((g) => g.artist !== startKey);
 
-  const pools: Record<Bucket, ArtistGroup[]> = {
-    related: [], trending: [], recent: [], classic: [],
-  };
-  for (const g of eligible) pools[g.bucket].push(g);
+  const pools = Object.fromEntries(BUCKET_ORDER.map((b) => [b, [] as ArtistGroup[]])) as Record<Bucket, ArtistGroup[]>;
+  for (const g of eligible) (pools[g.bucket] ?? pools.related).push(g);
 
   // Target artist count per bucket.
-  const targets: Record<Bucket, number> = {
-    related: Math.round(limit * MIX.related),
-    trending: Math.round(limit * MIX.trending),
-    recent: Math.round(limit * MIX.recent),
-    classic: Math.round(limit * MIX.classic),
-  };
+  const targets = Object.fromEntries(
+    BUCKET_ORDER.map((b) => [b, Math.max(1, Math.round(limit * MIX[b]))]),
+  ) as Record<Bucket, number>;
 
   const out: Candidate[] = [];
   const used = new Set<string>();
-  const taken: Record<Bucket, number> = { related: 0, trending: 0, recent: 0, classic: 0 };
+  const taken = Object.fromEntries(BUCKET_ORDER.map((b) => [b, 0])) as Record<Bucket, number>;
+
 
   const recentWindow = () => new Set(out.slice(-(MIN_ARTIST_GAP - 1)).map((c) => artistKey(c.artist)));
 
