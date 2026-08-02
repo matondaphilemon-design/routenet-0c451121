@@ -328,6 +328,33 @@ function bucketOf(c: Candidate): Bucket {
 
 
 /* ------------------------------------------------------------------ */
+/* Taste profile                                                        */
+/* ------------------------------------------------------------------ */
+
+let tasteCache: { at: number; map: Map<string, number> } | null = null;
+
+/** Per-artist affinity from local taste signals (likes/plays up, skips down). */
+function tasteWeight(artist: string): number {
+  if (!artist) return 0;
+  if (!tasteCache || Date.now() - tasteCache.at > 60_000) {
+    const map = new Map<string, number>();
+    for (const ev of getRecentSignals(100)) {
+      if (!ev.artist) continue;
+      const delta =
+        ev.type === "skip" ? -6 :
+        ev.type === "unlike" ? -8 :
+        ev.type === "like" ? 8 :
+        ev.type === "repeat" ? 6 :
+        ev.type === "follow_artist" ? 10 : 3;
+      const k = artistKey(ev.artist);
+      map.set(k, (map.get(k) || 0) + delta);
+    }
+    tasteCache = { at: Date.now(), map };
+  }
+  return tasteCache.map.get(artist) || 0;
+}
+
+/* ------------------------------------------------------------------ */
 /* Ranking                                                              */
 /* ------------------------------------------------------------------ */
 
