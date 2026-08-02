@@ -8,15 +8,21 @@
  */
 import type { Track } from "@/data/mockData";
 import { getTopSignalArtists } from "@/services/tasteEvents";
+import { getListeningHistory } from "@/hooks/useListeningHistory";
 import {
   ytSongs, ytTrendingSongs, ytVideos, ytTrendingVideos,
 } from "@/services/youtubeHome";
 import {
   getChart, getEditorialReleases, searchAlbums, searchArtists,
-  transformAlbum, transformArtist, transformTrack,
+  getArtistRelated, getArtistTopTracks, getArtistRadio, getGenreTracks,
+  getGenreChartAlbums, getGenreChartPlaylists, getGenreChartArtists,
+  getGenreReleases, getEditorialSelection, getLocalChart, searchPlaylists,
+  resolveArtistId,
+  transformAlbum, transformArtist, transformTrack, transformPlaylist,
 } from "@/services/deezer";
 import { enrichTracks } from "@/services/metadataEnrichment";
 import type { FeedVideo } from "@/components/home/cards/UnifiedCards";
+
 
 export type SectionKind = "songs" | "albums" | "playlists" | "artists" | "mix" | "songlist" | "videos";
 
