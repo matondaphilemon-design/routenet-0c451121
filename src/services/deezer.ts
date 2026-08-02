@@ -153,3 +153,69 @@ export async function searchArtists(query: string, limit = 20) {
     return [];
   }
 }
+
+/* ----------------------------------------------------------------- */
+/* Personalized endpoints used by the homepage                        */
+/* ----------------------------------------------------------------- */
+
+const safe = async (action: string, params: Record<string, any>) => {
+  try {
+    const d = await call(action, params);
+    return d?.data || d?.tracks?.data || [];
+  } catch {
+    return [];
+  }
+};
+
+/** Artists related to a given Deezer artist id (`/artist/{id}/related`). */
+export async function getArtistRelated(artistId: number | string, limit = 12) {
+  return safe("getArtistRelated", { artistId, limit });
+}
+
+/** Albums in a genre chart (`/chart/{genre_id}/albums`). */
+export async function getGenreChartAlbums(genreId: number | string, limit = 20) {
+  return safe("getGenreChartAlbums", { genreId, limit });
+}
+
+/** Playlists in a genre chart (`/chart/{genre_id}/playlists`). */
+export async function getGenreChartPlaylists(genreId: number | string, limit = 20) {
+  return safe("getGenreChartPlaylists", { genreId, limit });
+}
+
+/** Artists in a genre chart (`/chart/{genre_id}/artists`). */
+export async function getGenreChartArtists(genreId: number | string, limit = 20) {
+  return safe("getGenreChartArtists", { genreId, limit });
+}
+
+/** Editorial releases, optionally scoped to a genre (`/editorial/{id}/releases`). */
+export async function getGenreReleases(genreId: number | string = 0, limit = 20) {
+  return safe("getEditorialGenreReleases", { genreId, limit });
+}
+
+/** Editorial selection for a genre (`/editorial/{id}/selection`). */
+export async function getEditorialSelection(genreId: number | string = 0, limit = 20) {
+  return safe("getEditorialSelection", { genreId, limit });
+}
+
+/** Full tracklist for an album. */
+export async function getAlbumTracks(albumId: number | string, limit = 50) {
+  return safe("getAlbumTracks", { albumId, limit });
+}
+
+/** Resolve an artist name to its Deezer id (memoised for the session). */
+const artistIdCache = new Map<string, number | null>();
+export async function resolveArtistId(name: string): Promise<number | null> {
+  const key = (name || "").trim().toLowerCase();
+  if (!key) return null;
+  if (artistIdCache.has(key)) return artistIdCache.get(key)!;
+  try {
+    const rows = await searchArtist(name, 1);
+    const id = rows?.[0]?.id ?? null;
+    artistIdCache.set(key, id);
+    return id;
+  } catch {
+    artistIdCache.set(key, null);
+    return null;
+  }
+}
+
