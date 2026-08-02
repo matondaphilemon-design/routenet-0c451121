@@ -84,6 +84,198 @@ const deezerReleases = (limit = 20) => async (): Promise<SectionResult> => ({
   albums: (await getEditorialReleases(limit)).map(transformAlbum),
 });
 
+/* ------------------------------------------------------------------ */
+/* Personalization helpers                                             */
+/* ------------------------------------------------------------------ */
+
+/** Artists the listener actually engages with, strongest signal first. */
+function taste(followedArtists: string[]): string[] {
+  const history = getListeningHistory().map((t) => t.artist).filter(Boolean);
+  return Array.from(new Set([...getTopSignalArtists(10), ...history, ...followedArtists])).filter(Boolean);
+}
+
+/** Tracks the listener already heard — kept out of discovery rows. */
+function heardKeys(): Set<string> {
+  return new Set(
+    getListeningHistory().map((t) => `${(t.artist || "").toLowerCase()}::${(t.title || "").toLowerCase()}`),
+  );
+}
+
+function dedupeTracks(list: Track[], skipHeard = false): Track[] {
+  const heard = skipHeard ? heardKeys() : null;
+  const seen = new Set<string>();
+  const out: Track[] = [];
+  for (const t of list) {
+    if (!t?.title) continue;
+    const key = `${(t.artist || "").toLowerCase()}::${(t.title || "").toLowerCase()}`;
+    if (seen.has(key)) continue;
+    if (heard?.has(key)) continue;
+    seen.add(key);
+    out.push(t);
+  }
+  return out;
+}
+
+/** Round-robin merge so no single source dominates a row. */
+function roundRobin<T>(lists: T[][], limit: number): T[] {
+  const out: T[] = [];
+  for (let i = 0; out.length < limit; i++) {
+    let added = false;
+    for (const list of lists) {
+      if (i >= list.length) continue;
+      out.push(list[i]);
+      added = true;
+      if (out.length >= limit) break;
+    }
+    if (!added) break;
+  }
+  return out;
+}
+
+/** Deezer rows always fall back to the global chart so nothing renders empty. */
+async function songsOrChart(rows: any[], limit: number, skipHeard = false): Promise<SectionResult> {
+  let songs = dedupeTracks(rows.map(deezerTrack), skipHeard);
+  if (songs.length < 4) {
+    const chart = (await getChart(limit)).map(deezerTrack);
+    songs = dedupeTracks([...songs, ...chart]);
+  }
+  return { songs: await withDeezer(songs.slice(0, limit)) };
+}
+
+/* ------------------------------------------------------------------ */
+/* Personalized Deezer sections                                        */
+/* ------------------------------------------------------------------ */
+
+/** Your Daily Flow — an endless personal radio built from top artists + genres. */
+const dailyFlow = (artists: string[], genres: { id: number | string }[], limit = 25) =>
+  async (): Promise<SectionResult> => {
+    const seeds = artists.slice(0, 3);
+    const ids = (await Promise.all(seeds.map(resolveArtistId))).filter(Boolean) as number[];
+    const radios = await Promise.all(ids.map((id) => getArtistRadio(id, 15)));
+    const genreLists = await Promise.all(genres.slice(0, 2).map((g) => getGenreTracks(Number(g.id), 15)));
+    const merged = roundRobin([...radios, ...genreLists], limit + 10);
+    return songsOrChart(merged, limit, true);
+  };
+
+/** Top Picks — the strongest personal matches, song-first. */
+const topPicks = (artists: string[], genres: { id: number | string }[], limit = 20) =>
+  async (): Promise<SectionResult> => {
+    const ids = (await Promise.all(artists.slice(0, 4).map(resolveArtistId))).filter(Boolean) as number[];
+    const tops = await Promise.all(ids.map((id) => getArtistTopTracks(id, 6)));
+    const genreLists = await Promise.all(genres.slice(0, 2).map((g) => getGenreTracks(Number(g.id), 12)));
+    return songsOrChart(roundRobin([...tops, ...genreLists], limit + 8), limit);
+  };
+
+/** Made For You — recommended albums, artists and playlists in one row set. */
+const madeForYouAlbums = (artists: string[], genres: { id: number | string }[], limit = 20) =>
+  async (): Promise<SectionResult> => {
+    const ids = (await Promise.all(artists.slice(0, 3).map(resolveArtistId))).filter(Boolean) as number[];
+    const related = (await Promise.all(ids.map((id) => getArtistRelated(id, 6)))).flat();
+    const names = related.map((a: any) => a?.name).filter(Boolean).slice(0, 4);
+    const lists = await Promise.all([
+      ...names.map((n: string) => searchAlbums(n, 6)),
+      ...genres.slice(0, 2).map((g) => getGenreChartAlbums(Number(g.id), 10)),
+    ]);
+    let albums = roundRobin(lists, limit).map(transformAlbum);
+    if (albums.length < 4) albums = (await getEditorialReleases(limit)).map(transformAlbum);
+    return { albums };
+  };
+
+const madeForYouArtists = (artists: string[], genres: { id: number | string }[], limit = 20) =>
+  async (): Promise<SectionResult> => {
+    const ids = (await Promise.all(artists.slice(0, 4).map(resolveArtistId))).filter(Boolean) as number[];
+    const lists = await Promise.all([
+      ...ids.map((id) => getArtistRelated(id, 8)),
+      ...genres.slice(0, 2).map((g) => getGenreChartArtists(Number(g.id), 10)),
+    ]);
+    let rows = roundRobin(lists, limit + 6);
+    if (rows.length < 4) rows = await searchArtists(artists[0] || "top artists", limit);
+    const seen = new Set<string>();
+    const out = rows.map(transformArtist).filter((a: any) => {
+      const k = (a.name || "").toLowerCase();
+      if (!k || seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+    return { artists: out.slice(0, limit) };
+  };
+
+const madeForYouPlaylists = (genres: { id: number | string; name: string }[], limit = 20) =>
+  async (): Promise<SectionResult> => {
+    const lists = await Promise.all(genres.slice(0, 3).map((g) => getGenreChartPlaylists(Number(g.id), 8)));
+    let rows = roundRobin(lists, limit);
+    if (rows.length < 4) rows = await searchPlaylists(genres[0]?.name || "top hits", limit);
+    return { playlists: rows.map(transformPlaylist) };
+  };
+
+/** Flow Moods — personalized mood playlists, ordered by the user's genres. */
+const MOODS = ["Chill", "Party", "Focus", "Motivation", "Melancholy", "Feel Good"];
+const flowMoods = (mood: string, genreName: string, limit = 15) =>
+  async (): Promise<SectionResult> => {
+    const rows = await searchPlaylists(`${genreName ? genreName + " " : ""}${mood} flow`, limit);
+    const fallback = rows.length ? rows : await searchPlaylists(`${mood} mood`, limit);
+    return { playlists: fallback.map(transformPlaylist) };
+  };
+
+/** New Releases filtered by the listener's genres. */
+const genreReleases = (genreId: number | string, limit = 20) =>
+  async (): Promise<SectionResult> => {
+    let rows = await getGenreReleases(genreId, limit);
+    if (rows.length < 4) rows = await getEditorialReleases(limit);
+    return { albums: rows.map(transformAlbum) };
+  };
+
+/** "Inspired by <newest release>" — seeded by the freshest release we can find. */
+const inspiredByLatest = (genreId: number | string, limit = 20) =>
+  async (): Promise<SectionResult> => {
+    const releases = await getGenreReleases(genreId, 10);
+    const newest = releases
+      .slice()
+      .sort((a: any, b: any) => String(b?.release_date || "").localeCompare(String(a?.release_date || "")))[0];
+    const artistName = newest?.artist?.name;
+    if (!artistName) return songsOrChart(await getGenreTracks(Number(genreId) || 0, limit), limit);
+    const id = await resolveArtistId(artistName);
+    const rows = id ? await getArtistRadio(id, limit + 5) : [];
+    return {
+      title: `Inspired by ${newest.title || artistName}`,
+      ...(await songsOrChart(rows, limit, true)),
+    };
+  };
+
+/** Genre chart (`/chart/{genre_id}`). */
+const genreChart = (genreId: number | string, limit = 20) =>
+  async (): Promise<SectionResult> => songsOrChart(await getGenreTracks(Number(genreId) || 0, limit), limit);
+
+/** Similar artists to the user's top artist + their best songs. */
+const similarArtistSongs = (artistName: string, limit = 20) =>
+  async (): Promise<SectionResult> => {
+    const id = await resolveArtistId(artistName);
+    if (!id) return songsOrChart([], limit);
+    const related = await getArtistRelated(id, 6);
+    const tops = await Promise.all(
+      related.slice(0, 5).map((a: any) => getArtistTopTracks(a.id, 5)),
+    );
+    return songsOrChart(roundRobin(tops, limit + 5), limit, true);
+  };
+
+const similarArtistList = (artistName: string, limit = 20) =>
+  async (): Promise<SectionResult> => {
+    const id = await resolveArtistId(artistName);
+    const related = id ? await getArtistRelated(id, limit) : [];
+    const rows = related.length ? related : await searchArtists(artistName || "popular", limit);
+    return { artists: rows.map(transformArtist) };
+  };
+
+/** Global + regional charts, re-ranked towards the listener's genres. */
+const globalChartRow = (limit = 25) => async (): Promise<SectionResult> =>
+  songsOrChart(await getChart(limit), limit);
+
+const regionalChartRow = (country: string, limit = 20) => async (): Promise<SectionResult> =>
+  songsOrChart(await getLocalChart(country, limit), limit);
+
+const editorialSelection = (genreId: number | string, limit = 20) =>
+  async (): Promise<SectionResult> => songsOrChart(await getEditorialSelection(genreId, limit), limit);
+
 
 /** Blend several artist searches so no single artist dominates a row. */
 const mixOfArtists = (seeds: string[], suffix: string, limit = 20) => async (): Promise<SectionResult> => {
