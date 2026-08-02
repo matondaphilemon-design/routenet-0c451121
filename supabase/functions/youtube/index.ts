@@ -353,27 +353,61 @@ serve(async (req) => {
           );
         }
 
-        console.log(`Proxying audio download for ${videoId}`);
-        const audioResponse = await fetch(upstreamUrl, {
-          headers: { "Range": "bytes=0-" },
-          signal: AbortSignal.timeout(180000),
-        });
+        console.log(`Proxying audio download for ${videoId} (${quality})`);
 
-        if (!audioResponse.ok || !audioResponse.body) {
+        const openStream = async (u: string) =>
+          await fetch(u, {
+            headers: { "Range": "bytes=0-", "User-Agent": "Mozilla/5.0" },
+            redirect: "follow",
+            signal: AbortSignal.timeout(180000),
+          });
+
+        let audioResponse: Response | null = null;
+        try {
+          audioResponse = await openStream(upstreamUrl);
+        } catch (e) {
+          console.warn("[downloadAudio] stream open failed:", e);
+        }
+
+        // A client-resolved URL can expire or be IP-bound — re-resolve here.
+        if ((!audioResponse || !audioResponse.ok || !audioResponse.body) && quality === "client-resolved") {
+          try {
+            const streamInfo = await getAudioStreamUrl(videoId);
+            if (streamInfo?.url) {
+              mimeType = streamInfo.mimeType || mimeType;
+              quality = streamInfo.quality || "server-resolved";
+              audioResponse = await openStream(streamInfo.url);
+            }
+          } catch (e) {
+            console.warn("[downloadAudio] re-resolve failed:", e);
+          }
+        }
+
+        if (!audioResponse || !audioResponse.ok || !audioResponse.body) {
           return new Response(
-            JSON.stringify({ error: `Upstream audio fetch failed: ${audioResponse.status}` }),
-            { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            JSON.stringify({ success: false, error: `Upstream audio fetch failed: ${audioResponse?.status ?? "network"}` }),
+            {
+              status: 200,
+              headers: {
+                ...corsHeaders,
+                "Content-Type": "application/json",
+                "X-Stream-Error": "UPSTREAM_FAILED",
+              },
+            }
           );
         }
 
-        return new Response(audioResponse.body, {
-          headers: {
-            ...corsHeaders,
-            "Content-Type": audioResponse.headers.get("Content-Type") || mimeType,
-            "Content-Length": audioResponse.headers.get("Content-Length") || "",
-            "X-Audio-Quality": quality,
-          },
-        });
+        const outHeaders: Record<string, string> = {
+          ...corsHeaders,
+          "Content-Type": audioResponse.headers.get("Content-Type") || mimeType,
+          "X-Audio-Quality": quality,
+          "Access-Control-Expose-Headers": "Content-Length, X-Audio-Quality, X-Stream-Error",
+        };
+        const len = audioResponse.headers.get("Content-Length");
+        if (len) outHeaders["Content-Length"] = len;
+
+        return new Response(audioResponse.body, { headers: outHeaders });
+
       }
       default:
         throw new Error(`Unknown action: ${action}`);
