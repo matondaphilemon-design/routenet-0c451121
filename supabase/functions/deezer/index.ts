@@ -157,6 +157,22 @@ serve(async (req) => {
       case "getGenreChartArtists":
         url = `${DEEZER_API}/chart/${params.genreId}/artists?limit=${params.limit || 20}`;
         break;
+      case "getGenreChartAlbums":
+        url = `${DEEZER_API}/chart/${params.genreId}/albums?limit=${params.limit || 20}`;
+        break;
+      case "getGenreChartPlaylists":
+        url = `${DEEZER_API}/chart/${params.genreId}/playlists?limit=${params.limit || 20}`;
+        break;
+      case "getEditorialGenreReleases":
+        url = `${DEEZER_API}/editorial/${params.genreId || 0}/releases?limit=${params.limit || 20}`;
+        break;
+      case "getEditorialSelection":
+        url = `${DEEZER_API}/editorial/${params.genreId || 0}/selection?limit=${params.limit || 20}`;
+        break;
+      case "getAlbumTracks":
+        url = `${DEEZER_API}/album/${params.albumId}/tracks?limit=${params.limit || 50}`;
+        break;
+
       case "getRadio":
         url = `${DEEZER_API}/radio`;
         break;

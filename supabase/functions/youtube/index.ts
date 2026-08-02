@@ -281,17 +281,28 @@ serve(async (req) => {
         let mimeType = "audio/mp4";
         let quality = "unknown";
 
-        // 1) Try Piped/Invidious/Innertube via existing helper
-        try {
-          const streamInfo = await getAudioStreamUrl(videoId);
-          if (streamInfo?.url) {
-            upstreamUrl = streamInfo.url;
-            mimeType = streamInfo.mimeType || mimeType;
-            quality = streamInfo.quality || quality;
-          }
-        } catch (e) {
-          console.warn("[downloadAudio] primary stream failed:", e);
+        // 0) The client can hand us a stream URL it already resolved through
+        //    the Piped instance pool (the same source playback uses). This is
+        //    by far the most reliable path.
+        if (typeof params?.streamUrl === "string" && params.streamUrl.startsWith("http")) {
+          upstreamUrl = params.streamUrl;
+          quality = "client-resolved";
         }
+
+        // 1) Try Piped/Invidious/Innertube via existing helper
+        if (!upstreamUrl) {
+          try {
+            const streamInfo = await getAudioStreamUrl(videoId);
+            if (streamInfo?.url) {
+              upstreamUrl = streamInfo.url;
+              mimeType = streamInfo.mimeType || mimeType;
+              quality = streamInfo.quality || quality;
+            }
+          } catch (e) {
+            console.warn("[downloadAudio] primary stream failed:", e);
+          }
+        }
+
 
         // 2) Fallback to Cobalt (yt-dlp-style server) for real audio
         if (!upstreamUrl) {
