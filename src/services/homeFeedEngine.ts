@@ -308,6 +308,91 @@ export interface FeedInput {
 
 function pool<T>(arr: T[]): T[] { return arr.filter(Boolean); }
 
+/**
+ * Sections pinned to the top of the feed, directly under the quick-access
+ * grid: Made For You first, then Top Picks.
+ */
+export function pinnedSections(input: FeedInput): SectionDescriptor[] {
+  const artists = taste(input.followedArtists);
+  const genres = input.followedGenres;
+  return pool<SectionDescriptor | null>([
+    { id: "p-made-for-you", title: "Made For You", subtitle: "Albums picked from the artists you play", kind: "albums",
+      load: madeForYouAlbums(artists, genres, 20) },
+    { id: "p-top-picks", title: "Top Picks For You", subtitle: "Your strongest matches right now", kind: "songs",
+      load: topPicks(artists, genres, 20) },
+  ]) as SectionDescriptor[];
+}
+
+/** Deezer-powered personalized rows mixed into the rest of the feed. */
+function personalizedDeezerSections(input: FeedInput): SectionDescriptor[] {
+  const artists = taste(input.followedArtists);
+  const genres = input.followedGenres;
+  const top = artists[0] || "";
+  const country = (typeof navigator !== "undefined" && navigator.language?.split("-")[1]) || "US";
+
+  return pool<SectionDescriptor | null>([
+    { id: "dz-daily-flow", title: "Your Daily Flow", subtitle: "An endless station built around your taste", kind: "songs",
+      load: dailyFlow(artists, genres, 25) },
+    { id: "dz-daily-flow-list", title: "Flow Continues", kind: "songlist", load: dailyFlow(artists, genres, 16) },
+    { id: "dz-mfy-artists", title: "Artists Made For You", subtitle: "Close to what you already love", kind: "artists",
+      load: madeForYouArtists(artists, genres, 20) },
+    genres.length ? { id: "dz-mfy-playlists", title: "Playlists Made For You", kind: "playlists",
+      load: madeForYouPlaylists(genres, 20) } : null,
+
+    // Flow Moods
+    ...MOODS.map((mood, i) => ({
+      id: `dz-mood-${mood.toLowerCase()}`,
+      title: `${mood} Flow`,
+      subtitle: genres[i % Math.max(genres.length, 1)]?.name ? `In ${genres[i % genres.length].name}` : undefined,
+      kind: "playlists" as SectionKind,
+      load: flowMoods(mood, genres[i % Math.max(genres.length, 1)]?.name || "", 15),
+    })),
+
+    // New releases, filtered by genre + inspired-by-latest song rows
+    ...genres.slice(0, 3).map((g) => ({
+      id: `dz-rel-${g.id}`,
+      title: `New in ${g.name}`,
+      subtitle: "Fresh releases in your genre",
+      kind: "albums" as SectionKind,
+      load: genreReleases(g.id, 20),
+    })),
+    ...genres.slice(0, 3).map((g) => ({
+      id: `dz-inspired-${g.id}`,
+      title: `Inspired by the latest ${g.name} release`,
+      kind: "songs" as SectionKind,
+      load: inspiredByLatest(g.id, 20),
+    })),
+
+    // Genre charts
+    ...genres.slice(0, 4).map((g) => ({
+      id: `dz-chart-${g.id}`,
+      title: `${g.name} Chart`,
+      subtitle: "Biggest songs in your genre",
+      kind: "songs" as SectionKind,
+      load: genreChart(g.id, 20),
+    })),
+    ...genres.slice(0, 2).map((g) => ({
+      id: `dz-sel-${g.id}`,
+      title: `${g.name} Selection`,
+      kind: "songlist" as SectionKind,
+      load: editorialSelection(g.id, 16),
+    })),
+
+    // Similar artists
+    top ? { id: "dz-similar-songs", title: `Because You Play ${top}`, subtitle: "Songs from related artists", kind: "songs",
+      load: similarArtistSongs(top, 20) } : null,
+    top ? { id: "dz-similar-artists", title: `Similar to ${top}`, kind: "artists",
+      load: similarArtistList(top, 20) } : null,
+
+    // Charts
+    { id: "dz-global-chart", title: "Global Chart", subtitle: "Top 25 worldwide", kind: "songs", load: globalChartRow(25) },
+    { id: "dz-regional-chart", title: "Charting Near You", kind: "songs", load: regionalChartRow(country, 20) },
+    { id: "dz-global-list", title: "Worldwide Top Songs", kind: "songlist", load: globalChartRow(16) },
+  ]) as SectionDescriptor[];
+}
+
+
+
 function globalSections(input: FeedInput): SectionDescriptor[] {
   const { followedArtists, followedGenres, recentSeed } = input;
   const primaryArtist = followedArtists[0];
