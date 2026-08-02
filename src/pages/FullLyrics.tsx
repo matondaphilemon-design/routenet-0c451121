@@ -5,7 +5,7 @@
  */
 import { useMemo, useRef, useEffect, useState, useCallback } from "react";
 import { motion } from "framer-motion";
-import { ChevronDown, Music2, Pause, Play, Loader2, RefreshCw } from "lucide-react";
+import { ChevronDown, Music2, Loader2, RefreshCw } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { usePlayer } from "@/context/PlayerContext";
 import { useQuery } from "@tanstack/react-query";
@@ -38,7 +38,7 @@ function parseSyncedLyrics(synced: string): LyricLine[] {
 
 export default function FullLyrics() {
   const navigate = useNavigate();
-  const { progress, duration, currentTrack, isPlaying, togglePlay } = usePlayer();
+  const { progress, duration, currentTrack } = usePlayer();
   const activeRef = useRef<HTMLParagraphElement>(null);
   const title = currentTrack?.title || "";
   const artist = currentTrack?.artist || "";
@@ -136,16 +136,16 @@ export default function FullLyrics() {
           </div>
         )}
         {!isLoading && !isError && hasLyrics && (
-          <div className="mx-auto max-w-2xl py-[35vh] space-y-6">
+          <div className="mx-auto max-w-xl px-2 py-[38vh] space-y-7 text-center">
             {(hasSynced ? syncedLines! : plainLines.map((t, i) => ({ time: i, text: t }))).map((line, i) => {
               const isActive = hasSynced && i === activeIndex;
               const isPast = hasSynced && i < activeIndex;
               return (
                 <p key={i} ref={isActive ? activeRef : undefined}
-                  className={`text-[32px] leading-[1.25] tracking-tight transition-all duration-500 ${
-                    isActive ? "text-white scale-[1.02] drop-shadow-[0_0_28px_rgba(255,255,255,0.4)]"
-                    : isPast ? "text-white/30"
-                    : "text-white/70"
+                  className={`mx-auto max-w-[22ch] text-center text-[30px] leading-[1.3] tracking-tight transition-all duration-500 sm:text-[34px] ${
+                    isActive ? "text-white scale-[1.03] drop-shadow-[0_0_26px_rgba(255,255,255,0.35)]"
+                    : isPast ? "text-white/25"
+                    : "text-white/65"
                   }`}>
                   {line.text}
                 </p>
@@ -155,13 +155,8 @@ export default function FullLyrics() {
         )}
       </div>
 
-      {/* Floating play/pause */}
-      <div className="relative pb-8 pt-3 flex items-center justify-center">
-        <motion.button whileTap={{ scale: 0.94 }} onClick={togglePlay}
-          className="flex h-14 w-14 items-center justify-center rounded-full bg-white text-black shadow-2xl">
-          {isPlaying ? <Pause className="h-6 w-6" fill="currentColor" /> : <Play className="ml-1 h-6 w-6" fill="currentColor" />}
-        </motion.button>
-      </div>
+      <div className="relative pb-10" />
+
     </motion.div>
   );
 }

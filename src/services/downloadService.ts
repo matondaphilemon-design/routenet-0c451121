@@ -52,15 +52,24 @@ async function fetchWithProgress(url: string, onProgress?: (percent: number) => 
   return new Blob(chunks);
 }
 
-/** Stream audio from the download-audio edge function with progress tracking. */
+/** Stream audio from the `youtube` edge function with progress tracking. */
 async function downloadViaEdge(
   videoId: string,
   onProgress?: (percent: number) => void
 ): Promise<Blob> {
   const ANON = SUPABASE_PUBLISHABLE_KEY;
-  // Use the existing `youtube` edge function which has full fallback chain
-  // (Piped → Invidious → Cobalt → Innertube)
   const url = `${SUPABASE_URL}/functions/v1/youtube`;
+
+  // Resolve the stream through the same Piped instance pool playback uses.
+  // The edge function proxies it (and re-resolves server-side if it expired).
+  let streamUrl: string | undefined;
+  try {
+    const { getPipedAudioUrl } = await import("./pipedAudio");
+    const piped = await getPipedAudioUrl(videoId, 6000);
+    streamUrl = piped?.url;
+  } catch { /* server will resolve */ }
+
+  onProgress?.(1);
 
   const response = await fetch(url, {
     method: "POST",
@@ -69,43 +78,45 @@ async function downloadViaEdge(
       apikey: ANON,
       Authorization: `Bearer ${ANON}`,
     },
-    body: JSON.stringify({ action: "downloadAudio", params: { videoId } }),
+    body: JSON.stringify({ action: "downloadAudio", params: { videoId, streamUrl } }),
   });
 
-  // Check the X-Stream-Error header — function returns 200 even on stream failure
+  // The function answers 200 even on stream failure — check the marker header
+  // and the content type before treating the body as audio.
   const streamErr = response.headers.get("x-stream-error");
-  if (streamErr) {
-    throw new Error(`no audio stream available (${streamErr})`);
-  }
+  if (streamErr) throw new Error(`no audio stream available (${streamErr})`);
 
   if (!response.ok) {
     let msg = `download failed (${response.status})`;
     try {
       const j = await response.json();
       if (j?.error) msg = j.error;
-    } catch {}
+    } catch { /* not json */ }
     throw new Error(msg);
   }
 
-  // If the response is JSON instead of audio, it's an error envelope
   const ct = response.headers.get("content-type") || "";
   if (ct.includes("application/json")) {
+    let msg = "no audio stream";
     try {
       const j = await response.json();
-      throw new Error(j?.error || "no audio stream");
-    } catch (e) {
-      throw e instanceof Error ? e : new Error("no audio stream");
-    }
+      if (j?.error) msg = j.error;
+    } catch { /* ignore */ }
+    throw new Error(msg);
   }
 
-  const contentLength = response.headers.get("content-length");
-  if (!contentLength || !response.body) {
+  if (!response.body) {
     const blob = await response.blob();
     onProgress?.(100);
     return blob;
   }
 
-  const total = parseInt(contentLength, 10);
+  // Content-Length is often stripped by the proxy — fall back to a smooth
+  // byte-based estimate so the UI still shows real movement.
+  const contentLength = response.headers.get("content-length");
+  const total = contentLength ? parseInt(contentLength, 10) : 0;
+  const ESTIMATE = 4 * 1024 * 1024;
+
   const reader = response.body.getReader();
   const chunks: BlobPart[] = [];
   let received = 0;
@@ -114,11 +125,16 @@ async function downloadViaEdge(
     if (done) break;
     chunks.push(value);
     received += value.length;
-    onProgress?.(Math.round((received / total) * 100));
+    const pct = total > 0
+      ? Math.round((received / total) * 100)
+      : Math.min(95, Math.round((received / ESTIMATE) * 100));
+    onProgress?.(Math.max(1, Math.min(99, pct)));
   }
+  onProgress?.(100);
 
   return new Blob(chunks, { type: ct || "audio/mp4" });
 }
+
 
 export async function downloadTrack(
   track: Track,
