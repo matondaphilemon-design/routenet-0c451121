@@ -550,7 +550,15 @@ function interleave(sections: SectionDescriptor[]): SectionDescriptor[] {
 export function buildFeed(input: FeedInput, userSeed = "anon"): SectionDescriptor[] {
   const day = Math.floor(Date.now() / (24 * 60 * 60 * 1000));
   const seed = hash(userSeed + ":" + day + ":" + input.followedArtists.join("|"));
-  const global = seededShuffle(globalSections(input), seed);
+  const global = seededShuffle(
+    [...globalSections(input), ...personalizedDeezerSections(input)],
+    seed,
+  );
   const perArtist = seededShuffle(artistSections(input.followedArtists), seed ^ 0x9e3779b9);
-  return interleave([...global, ...perArtist]);
+  const mixed = interleave([...global, ...perArtist]);
+  // Made For You + Top Picks always sit directly under the quick-access grid.
+  const pinned = pinnedSections(input);
+  const pinnedIds = new Set(pinned.map((s) => s.id));
+  return [...pinned, ...mixed.filter((s) => !pinnedIds.has(s.id))];
 }
+
