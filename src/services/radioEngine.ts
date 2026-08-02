@@ -286,16 +286,25 @@ export function filterCandidates(
 const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 
 /**
- * Which era bucket does a candidate belong to? The backend already tags the
- * queries it came from; upload age refines the answer for related videos.
+ * Which role does a candidate play in the session? The backend tags the query
+ * a candidate came from; upload age and popularity refine the answer so the
+ * queue also contains fan favourites and hidden gems, not only chart hits.
  */
 function bucketOf(c: Candidate): Bucket {
-  if (c.bucket && BUCKET_ORDER.includes(c.bucket)) return c.bucket;
+  const tagged = c.bucket as Bucket | undefined;
+  if (tagged && (tagged === "trending" || tagged === "recent" || tagged === "classic")) {
+    // A "trending" candidate with modest reach is really a fan favourite.
+    if (tagged === "trending" && c.views > 0 && c.views < 2_000_000) return "fanfav";
+    return tagged;
+  }
   const age = c.uploaded ? Date.now() - c.uploaded : 0;
+  if (c.views > 0 && c.views < 300_000) return "hidden";
   if (c.uploaded && age < YEAR_MS) return "recent";
   if (c.uploaded && age > 6 * YEAR_MS) return "classic";
+  if (c.views > 0 && c.views < 5_000_000 && !c.topic) return "fanfav";
   return "related";
 }
+
 
 /* ------------------------------------------------------------------ */
 /* Ranking                                                              */
