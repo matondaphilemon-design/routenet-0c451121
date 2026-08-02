@@ -550,8 +550,8 @@ function exclusions(existing: Track[]) {
   return { ids, titles };
 }
 
-async function buildBatch(seed: Track, existing: Track[], limit: number): Promise<Track[]> {
-  const raw = await fetchCandidates(seed);
+async function buildBatch(seed: Track, existing: Track[], limit: number, wide: boolean): Promise<Track[]> {
+  const raw = await fetchCandidates(seed, wide);
   if (!raw.length) return [];
   const { ids, titles } = exclusions([seed, ...existing]);
   const filtered = filterCandidates(raw, ids, titles);
@@ -561,23 +561,89 @@ async function buildBatch(seed: Track, existing: Track[], limit: number): Promis
     .map((c) => ({ c, s: scoreCandidate(c, seed.artist, neighbourhood) }))
     .sort((a, b) => b.s - a.s)
     .map((x) => x.c);
-  // Artists first, songs second.
+  // Artists first, songs second — then laid out as a DJ set.
   return selectByArtist(groupByArtist(ranked), limit, seed.artist).map(toTrack);
 }
 
-/** Start a brand-new discovery session seeded by the selected song. */
+/* ------------------------------------------------------------------ */
+/* Session lifecycle                                                    */
+/* ------------------------------------------------------------------ */
+
+const QUEUE_HISTORY_KEY = "radio_queue_history_v1";
+const QUEUE_HISTORY_MAX = 8;
+
+interface QueueHistoryEntry {
+  sessionId: string;
+  createdAt: number;
+  songs: string[];
+  artists: string[];
+}
+
+function readQueueHistory(): QueueHistoryEntry[] {
+  try { return JSON.parse(localStorage.getItem(QUEUE_HISTORY_KEY) || "[]"); } catch { return []; }
+}
+
+function rememberQueue(sessionId: string, queue: Track[]) {
+  try {
+    const entry: QueueHistoryEntry = {
+      sessionId,
+      createdAt: Date.now(),
+      songs: queue.map((t) => t.id),
+      artists: Array.from(new Set(queue.map((t) => artistKey(t.artist)).filter(Boolean))),
+    };
+    localStorage.setItem(
+      QUEUE_HISTORY_KEY,
+      JSON.stringify([entry, ...readQueueHistory()].slice(0, QUEUE_HISTORY_MAX)),
+    );
+  } catch { /* storage full/disabled */ }
+}
+
+/** Songs used by the two most recent sessions — future queues avoid re-using them. */
+function recentQueueSongs(): Set<string> {
+  const out = new Set<string>();
+  for (const entry of readQueueHistory().slice(0, 2)) {
+    for (const id of entry.songs) out.add(id);
+  }
+  return out;
+}
+
+let sessionId = "";
+let sessionStartedAt = 0;
+
+/** True when the current session is stale and should be rebuilt. */
+export function sessionExpired(): boolean {
+  return !sessionStartedAt || Date.now() - sessionStartedAt > SESSION_TTL_MS;
+}
+
+/**
+ * Start a brand-new 100-song listening session seeded by the selected song.
+ * This is the only place a full queue is generated.
+ */
 export async function buildRadioQueue(seed: Track): Promise<Track[]> {
   markPlayed(seed);
-  const rest = await buildBatch(seed, [], INITIAL_QUEUE_SIZE - 1);
-  return [seed, ...rest];
+  sessionId = `s${Date.now().toString(36)}`;
+  sessionStartedAt = Date.now();
+
+  const avoid = recentQueueSongs();
+  const rest = await buildBatch(seed, [], INITIAL_QUEUE_SIZE + 20, true);
+  // Prefer songs the last sessions did not use, but never starve the queue.
+  const fresh = rest.filter((t) => !avoid.has(t.id));
+  const chosen = (fresh.length >= INITIAL_QUEUE_SIZE - 1 ? fresh : rest).slice(0, INITIAL_QUEUE_SIZE - 1);
+  const queue = [seed, ...chosen];
+  rememberQueue(sessionId, queue);
+  return queue;
 }
 
 /** Append a fresh batch, seeded by the currently playing song. */
 export async function expandRadioQueue(currentSeed: Track, queue: Track[]): Promise<Track[]> {
-  return buildBatch(currentSeed, queue, REFILL_BATCH_SIZE);
+  if (!sessionStartedAt) sessionStartedAt = Date.now();
+  const extra = await buildBatch(currentSeed, queue, REFILL_BATCH_SIZE, true);
+  if (extra.length) rememberQueue(sessionId || "s-refill", [...queue, ...extra]);
+  return extra;
 }
 
 /** True when the queue is close enough to the end that it should refill. */
 export function needsRefill(queue: Track[], index: number) {
-  return queue.length - index - 1 <= REFILL_THRESHOLD;
+  return queue.length - index - 1 <= REFILL_THRESHOLD || sessionExpired();
 }
+
