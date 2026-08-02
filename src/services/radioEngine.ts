@@ -368,6 +368,11 @@ export function scoreCandidate(
   const recurrence = neighbourhood.get(a) || 0;
   score += Math.min(recurrence * 3, 12);
 
+  // 4b. Personal taste profile — likes/plays lift an artist, skips push it down.
+  const taste = tasteWeight(a);
+  score += Math.max(-25, Math.min(20, taste));
+
+
   // 5. Official / editorial signals and popularity (log-scaled so mega-hits
   //    never crowd out discoveries).
   if (c.topic) score += 12;
