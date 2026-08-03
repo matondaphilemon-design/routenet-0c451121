@@ -103,6 +103,7 @@ Return a JSON object: { "tracks": [{ "title": string, "artist": string, "role": 
       .map((t: any) => ({
         title: String(t?.title ?? "").trim(),
         artist: String(t?.artist ?? "").trim(),
+        role: String(t?.role ?? "related").trim().toLowerCase().slice(0, 20),
         reason: String(t?.reason ?? "").trim().slice(0, 140),
       }))
       .filter((t: any) => t.title && t.artist);
