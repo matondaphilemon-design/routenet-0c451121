@@ -60,17 +60,11 @@ async function downloadViaEdge(
   const ANON = SUPABASE_PUBLISHABLE_KEY;
   const url = `${SUPABASE_URL}/functions/v1/youtube`;
 
-  // Resolve the stream through the same Piped instance pool playback uses.
-  // The edge function proxies it (and re-resolves server-side if it expired).
-  let streamUrl: string | undefined;
-  try {
-    const { getPipedAudioUrl } = await import("./pipedAudio");
-    const piped = await getPipedAudioUrl(videoId, 6000);
-    streamUrl = piped?.url;
-  } catch { /* server will resolve */ }
-
   onProgress?.(1);
 
+  // The edge function resolves the stream server-side. Client-resolved Piped
+  // URLs are IP-bound and were the main cause of failed downloads, so they are
+  // no longer sent.
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -78,7 +72,7 @@ async function downloadViaEdge(
       apikey: ANON,
       Authorization: `Bearer ${ANON}`,
     },
-    body: JSON.stringify({ action: "downloadAudio", params: { videoId, streamUrl } }),
+    body: JSON.stringify({ action: "downloadAudio", params: { videoId } }),
   });
 
   // The function answers 200 even on stream failure — check the marker header
