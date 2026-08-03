@@ -1,231 +1,224 @@
-import { useParams, useNavigate } from "react-router-dom";
+/**
+ * Album detail — Spotify-style layout: large centred artwork, title block,
+ * action row (save / download / more) with a primary play button, then a
+ * numbered tracklist.
+ */
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ArrowLeft, Play, Shuffle, Heart, Plus, Loader2, Download } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Track } from "@/data/mockData";
+import {
+  ArrowLeft, CheckCircle2, Download, Loader2, MoreHorizontal, Play, Plus, Shuffle,
+} from "lucide-react";
+import { toast } from "sonner";
+import type { Track } from "@/data/mockData";
 import { usePlayer } from "@/context/PlayerContext";
-import { useState, useEffect, useCallback } from "react";
 import { useDeezerAlbum } from "@/hooks/useMusicSearch";
 import { usePreloadYouTube } from "@/hooks/usePreloadYouTube";
-import { TrackCard } from "@/components/cards/TrackCard";
-import { toggleLikedAlbum, getLikedAlbums } from "@/pages/Library";
-import { downloadTrack } from "@/services/downloadService";
+import { getLikedAlbums, toggleLikedAlbum } from "@/pages/Library";
+import { downloadTrack, lastDownloadError } from "@/services/downloadService";
 import { toTitleCase } from "@/utils/toTitleCase";
-import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
-const AlbumDetail = () => {
-  const { id } = useParams();
+type DlState = Record<string, { status: "pending" | "downloading" | "done" | "failed"; percent: number }>;
+
+function fmt(seconds?: number) {
+  if (!seconds || seconds <= 0) return "";
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60).toString().padStart(2, "0");
+  return `${m}:${s}`;
+}
+
+function totalLength(tracks: Track[]) {
+  const secs = tracks.reduce((sum, t) => sum + (t.duration || 0), 0);
+  if (!secs) return "";
+  const h = Math.floor(secs / 3600);
+  const m = Math.round((secs % 3600) / 60);
+  return h ? `${h} hr ${m} min` : `${m} min`;
+}
+
+export default function AlbumDetail() {
+  const { id = "" } = useParams();
   const navigate = useNavigate();
-  const { play, setQueue, playCollection } = usePlayer();
+  const { playCollection, currentTrack, isPlaying } = usePlayer();
   const [isSaved, setIsSaved] = useState(false);
-  const [downloadProgress, setDownloadProgress] = useState<Record<string, { status: "pending" | "downloading" | "done" | "failed"; percent: number }>>({});
-  const [isDownloadingAll, setIsDownloadingAll] = useState(false);
+  const [progressMap, setProgressMap] = useState<DlState>({});
+  const [downloadingAll, setDownloadingAll] = useState(false);
 
-  const { data: albumData, isLoading } = useDeezerAlbum(id || '');
+  const { data: album, isLoading } = useDeezerAlbum(id);
 
   useEffect(() => {
-    if (albumData) {
-      const saved = getLikedAlbums().some(a => a.id === id);
-      setIsSaved(saved);
-    }
-  }, [albumData, id]);
+    if (album) setIsSaved(getLikedAlbums().some((a) => a.id === id));
+  }, [album, id]);
 
-  const tracks: Track[] = (albumData?.tracks?.data || []).map((t: any) => ({
-    id: `deezer-album-${albumData?.id}-${t.id}`,
-    title: toTitleCase(t.title),
-    artist: toTitleCase(t.artist?.name || albumData?.artist?.name || 'Unknown Artist'),
-    album: albumData?.title || 'Unknown Album',
-    artwork: albumData?.cover_medium || albumData?.cover || '',
-    duration: t.duration || 180,
-  }));
+  const tracks: Track[] = useMemo(
+    () =>
+      ((album?.tracks?.data || []) as any[]).map((t) => ({
+        id: `deezer-album-${album?.id}-${t.id}`,
+        title: toTitleCase(t.title),
+        artist: toTitleCase(t.artist?.name || album?.artist?.name || "Unknown Artist"),
+        album: album?.title || "",
+        artwork: album?.cover_xl || album?.cover_big || album?.cover_medium || "",
+        duration: t.duration || 0,
+        explicit: Boolean(t.explicit_lyrics),
+      })) as Track[],
+    [album],
+  );
 
   usePreloadYouTube(tracks, tracks.length > 0);
 
-  const handlePlayAll = () => {
-    if (tracks.length > 0) playCollection(tracks, 0);
-  };
-
-  const handleShuffle = () => {
-    if (tracks.length > 0) playCollection([...tracks].sort(() => Math.random() - 0.5), 0);
-  };
-
   const handleSave = () => {
-    if (!albumData) return;
+    if (!album) return;
     const result = toggleLikedAlbum({
-      id: id || '',
-      title: albumData.title,
-      artist: albumData.artist?.name || 'Unknown',
-      artwork: albumData.cover_medium || albumData.cover || '',
+      id,
+      title: album.title,
+      artist: album.artist?.name || "Unknown",
+      artwork: album.cover_medium || album.cover || "",
     });
     setIsSaved(result);
-    toast.success(result ? "Album saved to library" : "Album removed from library");
+    toast.success(result ? "Saved to your library" : "Removed from your library");
   };
 
-  const handleDownloadAlbum = useCallback(async () => {
-    if (tracks.length === 0 || isDownloadingAll) return;
-    setIsDownloadingAll(true);
-    
-    const initial: Record<string, { status: "pending" | "downloading" | "done" | "failed"; percent: number }> = {};
-    tracks.forEach(t => { initial[t.id] = { status: "pending", percent: 0 }; });
-    setDownloadProgress(initial);
-    
-    toast.info(`Downloading ${tracks.length} tracks...`);
-    
-    const groupInfo = {
-      groupKey: `album-${id}`,
-      groupName: albumData?.title || "Unknown Album",
-      groupType: "album" as const,
-    };
-    
-    let downloaded = 0;
-    for (let i = 0; i < tracks.length; i++) {
-      const track = tracks[i];
-      setDownloadProgress(prev => ({ ...prev, [track.id]: { status: "downloading", percent: 0 } }));
-      
-      try {
-        const ok = await downloadTrack(
-          track,
-          (percent) => setDownloadProgress(prev => ({ ...prev, [track.id]: { status: "downloading", percent } })),
-          groupInfo
-        );
-        setDownloadProgress(prev => ({ ...prev, [track.id]: { status: ok ? "done" : "failed", percent: ok ? 100 : 0 } }));
-        if (ok) downloaded++;
-        await new Promise(r => setTimeout(r, 800));
-      } catch {
-        setDownloadProgress(prev => ({ ...prev, [track.id]: { status: "failed", percent: 0 } }));
-      }
+  const handleDownloadAll = useCallback(async () => {
+    if (!tracks.length || downloadingAll) return;
+    setDownloadingAll(true);
+    const init: DlState = {};
+    tracks.forEach((t) => { init[t.id] = { status: "pending", percent: 0 }; });
+    setProgressMap(init);
+    toast.info(`Downloading ${tracks.length} tracks…`);
+
+    let done = 0;
+    for (const track of tracks) {
+      setProgressMap((p) => ({ ...p, [track.id]: { status: "downloading", percent: 0 } }));
+      const ok = await downloadTrack(
+        track,
+        (percent) => setProgressMap((p) => ({ ...p, [track.id]: { status: "downloading", percent } })),
+        { groupKey: `album-${id}`, groupName: album?.title || "Album", groupType: "album" },
+      );
+      setProgressMap((p) => ({ ...p, [track.id]: { status: ok ? "done" : "failed", percent: ok ? 100 : 0 } }));
+      if (ok) done++;
+      await new Promise((r) => setTimeout(r, 600));
     }
-    
-    setIsDownloadingAll(false);
-    if (downloaded > 0) {
-      toast.success(`Downloaded ${downloaded} of ${tracks.length} tracks`);
-    } else {
-      toast.error("Download failed");
-    }
-  }, [tracks, isDownloadingAll, id, albumData]);
+    setDownloadingAll(false);
+    if (done) toast.success(`Downloaded ${done} of ${tracks.length} tracks`);
+    else toast.error(lastDownloadError || "Download failed");
+  }, [tracks, downloadingAll, id, album?.title]);
 
   if (isLoading) {
-    return <div className="flex items-center justify-center h-full gap-2"><Loader2 className="h-6 w-6 animate-spin text-primary" /><p className="text-muted-foreground">Loading album...</p></div>;
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
   }
 
-  if (!albumData) {
-    return <div className="flex items-center justify-center h-full"><p className="text-muted-foreground">Album not found</p></div>;
+  if (!album) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background px-8 text-center">
+        <p className="text-sm text-muted-foreground">This album couldn't be loaded.</p>
+        <button onClick={() => navigate(-1)} className="rounded-full bg-primary px-6 py-2 text-sm font-bold text-primary-foreground">Go back</button>
+      </div>
+    );
   }
 
-  const coverUrl = albumData.cover_xl || albumData.cover_big || albumData.cover_medium || albumData.cover;
-  const totalDuration = tracks.reduce((sum, t) => sum + t.duration, 0);
-  const formatTotalDuration = (seconds: number) => {
-    const hours = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    return hours > 0 ? `${hours} hr ${mins} min` : `${mins} min`;
-  };
+  const cover = album.cover_xl || album.cover_big || album.cover_medium || "";
+  const year = (album.release_date || "").slice(0, 4);
 
   return (
-    <div className="min-h-full flex flex-col">
-      <div className="fixed inset-0 -z-10">
-        <img src={coverUrl} alt="" className="h-full w-full object-cover blur-[80px] scale-110 opacity-30" />
-        <div className="absolute inset-0 bg-gradient-to-b from-background/60 via-background/90 to-background" />
-      </div>
+    <div className="custom-scrollbar min-h-screen overflow-y-auto bg-background pb-32">
+      {/* Header wash from the artwork */}
+      <div className="relative">
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0 h-[62vh]"
+          style={{ backgroundImage: `url(${cover})`, backgroundSize: "cover", backgroundPosition: "center", filter: "blur(60px) saturate(150%) brightness(0.5)" }}
+          aria-hidden="true"
+        />
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[62vh] bg-gradient-to-b from-background/20 via-background/60 to-background" />
 
-      <div className="relative px-4 pt-4 pb-6">
-        <motion.button initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} onClick={() => navigate(-1)}
-          className="mb-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors">
-          <ArrowLeft className="w-5 h-5" />
-        </motion.button>
-
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center text-center">
-          <img src={coverUrl} alt={albumData.title} className="mb-6 h-60 w-60 rounded-xl object-cover shadow-2xl" />
-          <h1 className="px-4 text-[26px] font-black leading-tight tracking-tight">{toTitleCase(albumData.title)}</h1>
-          <button
-            onClick={() => navigate(`/artist/${encodeURIComponent(albumData.artist?.name || '')}`)}
-            className="mt-3 flex items-center gap-2 text-sm font-bold text-foreground transition-colors hover:text-primary"
-          >
-            {albumData.artist?.picture_small && (
-              <img src={albumData.artist.picture_small} alt="" className="h-6 w-6 rounded-full object-cover" />
-            )}
-            {toTitleCase(albumData.artist?.name || "")}
+        <div className="relative px-5 pt-8">
+          <button onClick={() => navigate(-1)} aria-label="Go back" className="flex h-9 w-9 items-center justify-center rounded-full bg-background/60 text-foreground outline-none backdrop-blur transition-colors hover:bg-background focus-visible:ring-2 focus-visible:ring-primary">
+            <ArrowLeft className="h-5 w-5" />
           </button>
-          <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Album • {albumData.release_date?.split('-')[0]} • {tracks.length} songs • {formatTotalDuration(totalDuration)}
-          </p>
-        </motion.div>
+
+          <motion.img
+            initial={{ opacity: 0, scale: 0.94 }}
+            animate={{ opacity: 1, scale: 1 }}
+            src={cover}
+            alt={`${album.title} album cover`}
+            className="mx-auto mt-6 aspect-square w-[62vw] max-w-[280px] rounded-md object-cover shadow-[0_18px_50px_-12px_rgba(0,0,0,0.75)]"
+          />
+
+          <div className="mt-6">
+            <h1 className="text-[26px] font-black leading-tight tracking-tight text-foreground">{toTitleCase(album.title)}</h1>
+            <button
+              onClick={() => navigate(`/artist/${encodeURIComponent(album.artist?.name || "")}`)}
+              className="mt-2 flex items-center gap-2 outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              {album.artist?.picture_small && (
+                <img src={album.artist.picture_small} alt="" className="h-6 w-6 rounded-full object-cover" />
+              )}
+              <span className="text-sm font-bold text-foreground">{toTitleCase(album.artist?.name || "")}</span>
+            </button>
+            <p className="mt-2 text-xs font-semibold text-muted-foreground">
+              {["Album", year, `${tracks.length} songs`, totalLength(tracks)].filter(Boolean).join(" · ")}
+            </p>
+          </div>
+
+          {/* Action row */}
+          <div className="mt-5 flex items-center gap-5">
+            <button onClick={handleSave} aria-label={isSaved ? "Remove from library" : "Save to library"} className={cn("outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary", isSaved ? "text-primary" : "text-muted-foreground hover:text-foreground")}>
+              {isSaved ? <CheckCircle2 className="h-6 w-6" /> : <Plus className="h-6 w-6" />}
+            </button>
+            <button onClick={handleDownloadAll} aria-label="Download album" disabled={downloadingAll} className="text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60">
+              {downloadingAll ? <Loader2 className="h-6 w-6 animate-spin" /> : <Download className="h-6 w-6" />}
+            </button>
+            <button onClick={() => playCollection([...tracks].sort(() => Math.random() - 0.5), 0)} aria-label="Shuffle play" className="text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary">
+              <Shuffle className="h-6 w-6" />
+            </button>
+            <button aria-label="More options" className="text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary">
+              <MoreHorizontal className="h-6 w-6" />
+            </button>
+            <button
+              onClick={() => tracks.length && playCollection(tracks, 0)}
+              aria-label="Play album"
+              className="ml-auto flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-glow outline-none transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-95"
+            >
+              <Play className="ml-0.5 h-7 w-7" fill="currentColor" />
+            </button>
+          </div>
+        </div>
       </div>
 
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-        className="flex items-center justify-between px-5 py-4"
-      >
-        <div className="flex items-center gap-1">
-          <Button onClick={handleSave} variant="ghost" size="icon" aria-label="Save album" className={isSaved ? "text-primary" : "text-muted-foreground"}>
-            <Heart className={`h-6 w-6 ${isSaved ? "fill-current" : ""}`} />
-          </Button>
-          <Button onClick={handleDownloadAlbum} variant="ghost" size="icon" aria-label="Download album" disabled={isDownloadingAll || tracks.length === 0} className="text-muted-foreground hover:text-foreground">
-            {isDownloadingAll ? <Loader2 className="h-5 w-5 animate-spin" /> : <Download className="h-5 w-5" />}
-          </Button>
-          <Button onClick={handleSave} variant="ghost" size="icon" aria-label="Add to library" className={isSaved ? "text-primary" : "text-muted-foreground"}>
-            <Plus className={`h-6 w-6 transition-transform ${isSaved ? "rotate-45" : ""}`} />
-          </Button>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <Button onClick={handleShuffle} variant="ghost" size="icon" aria-label="Shuffle" disabled={tracks.length === 0} className="text-muted-foreground hover:text-foreground">
-            <Shuffle className="h-6 w-6" />
-          </Button>
-          <Button
-            onClick={handlePlayAll}
-            aria-label="Play album"
-            disabled={tracks.length === 0}
-            className="h-14 w-14 rounded-full bg-primary p-0 text-primary-foreground shadow-glow transition-transform hover:bg-primary/90 active:scale-95"
-          >
-            <Play className="ml-1 h-6 w-6 fill-current" />
-          </Button>
-        </div>
-      </motion.div>
-
-      {/* Track list — scrollable, but no empty space beyond last track */}
-      <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="px-4">
-        {tracks.length > 0 ? (
-          <div className="space-y-1">
-            {tracks.map((track, index) => {
-              const dl = downloadProgress[track.id];
-              const status = (dl?.status as any) || "idle";
-              const startOne = () => {
-                if (dl?.status === "downloading" || dl?.status === "done") return;
-                setDownloadProgress(prev => ({ ...prev, [track.id]: { status: "downloading", percent: 0 } }));
-                downloadTrack(
-                  track,
-                  (p) => setDownloadProgress(prev => ({ ...prev, [track.id]: { status: "downloading", percent: p } })),
-                  { groupKey: `album-${id}`, groupName: albumData?.title || "", groupType: "album" }
-                ).then(ok => {
-                  setDownloadProgress(prev => ({ ...prev, [track.id]: { status: ok ? "done" : "failed", percent: ok ? 100 : 0 } }));
-                  if (ok) toast.success(`Downloaded ${track.title}`);
-                  else toast.error(`Couldn't download ${track.title}`);
-                });
-              };
-              return (
-                <TrackCard
-                  key={track.id}
-                  track={track}
-                  index={index}
-                  showIndex
-                  contextTracks={tracks}
-                  download={{ status, percent: dl?.percent || 0, onClick: startOne }}
-                />
-              );
-            })}
-          </div>
-        ) : (
-          <p className="text-muted-foreground text-sm py-4 text-center">No tracks available</p>
-        )}
-
-        {albumData.label && (
-          <p className="text-xs text-muted-foreground mt-6">{albumData.release_date} • {albumData.label}</p>
-        )}
-      </motion.section>
+      {/* Tracklist */}
+      <ol className="mt-6 px-5">
+        {tracks.map((track, i) => {
+          const active = currentTrack?.id === track.id;
+          const dl = progressMap[track.id];
+          return (
+            <li key={track.id}>
+              <button
+                onClick={() => playCollection(tracks, i)}
+                className="flex w-full items-center gap-3 rounded-md py-2.5 text-left outline-none transition-colors hover:bg-foreground/5 focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                <span className={cn("w-5 shrink-0 text-center text-[13px] font-semibold tabular-nums", active ? "text-primary" : "text-muted-foreground")}>
+                  {active && isPlaying ? "▶" : i + 1}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className={cn("block truncate text-[15px] font-semibold", active ? "text-primary" : "text-foreground")}>{track.title}</span>
+                  <span className="mt-0.5 flex items-center gap-1.5">
+                    {(track as any).explicit && (
+                      <span className="rounded-[3px] bg-muted px-1 text-[9px] font-bold uppercase text-muted-foreground">E</span>
+                    )}
+                    <span className="truncate text-[12px] text-muted-foreground">{track.artist}</span>
+                  </span>
+                </span>
+                <span className="shrink-0 text-[12px] tabular-nums text-muted-foreground">
+                  {dl?.status === "downloading" ? `${dl.percent}%` : dl?.status === "done" ? "✓" : fmt(track.duration)}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
-};
-
-export default AlbumDetail;
+}
