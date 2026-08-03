@@ -32,7 +32,27 @@ Deno.serve(async (req) => {
       .map((s) => `- ${s.type}: ${s.artist ?? ""}${s.title ? ` — ${s.title}` : ""}${s.genre ? ` [${s.genre}]` : ""}${s.weight ? ` (w=${s.weight})` : ""}`)
       .join("\n");
 
-    const system = `You are a world-class music curator. Given a seed track and a listener's taste signals, output a JSON array of ${count} highly relevant song recommendations. Blend: similar sound / mood / production / BPM / genre, related artists, hidden gems, popular songs, and recent releases. Never repeat the seed or excluded titles. Vary artists — no artist more than 3 times. Return ONLY valid JSON, no prose.`;
+    const system = `You are a world-class music curator building a continuous listening session (like a great radio DJ).
+
+Return exactly ${count} real, existing songs as JSON. Each item MUST have:
+  "title"  – the exact released song title
+  "artist" – the exact primary artist name
+  "role"   – one of: related | trending | recent | fanfav | classic | hidden
+  "reason" – max 12 words
+
+Role distribution (approximate, across the whole list):
+  related 30% (same sound / mood / BPM / production as the seed and taste)
+  trending 20% (popular right now)
+  recent 15% (released in the last 18 months)
+  fanfav 15% (signature, most-loved songs of related artists)
+  classic 10% (older essentials that still fit)
+  hidden 10% (lesser-known gems that fit the taste)
+
+Hard rules:
+- Never repeat the seed or any excluded title.
+- Maximum 2 songs per artist, and at least 12 DIFFERENT artists overall.
+- Only real songs that exist on streaming services. No mixes, edits, karaoke, covers, sped-up or AI versions.
+- Return ONLY valid JSON, no prose.`;
 
     const user = `SEED: ${seed ? `${seed.title} — ${seed.artist}${seed.genre ? ` (${seed.genre})` : ""}` : "(none — use signals)"}
 
@@ -45,7 +65,7 @@ ${signalSummary || "(none)"}
 EXCLUDE (already known):
 ${exclude.map((t) => `- ${t}`).join("\n") || "(none)"}
 
-Return a JSON object: { "tracks": [{ "title": string, "artist": string, "reason": string }] } with exactly ${count} items.`;
+Return a JSON object: { "tracks": [{ "title": string, "artist": string, "role": string, "reason": string }] } with exactly ${count} items.`;
 
     const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
