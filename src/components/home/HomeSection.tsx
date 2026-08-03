@@ -87,7 +87,7 @@ function HomeSectionImpl({ slot, user, onPlay, hideStreams, excludeIds, onResolv
 
   // A section that resolved to nothing is removed entirely — no empty rows,
   // no placeholder cards, no dangling headings.
-  if (isEmpty) return <div ref={ref} data-section-id={slot.id} className="hidden" />;
+  if (isEmpty) return <section ref={ref} data-section-id={slot.id} className="hidden" />;
 
   // Hero layout: full-width artist spotlight card
   if (slot.layout === "hero") {
