@@ -130,11 +130,15 @@ async function downloadViaEdge(
 }
 
 
+/** The reason the last download failed — surfaced by the UI. */
+export let lastDownloadError = "";
+
 export async function downloadTrack(
   track: Track,
   onProgress?: (percent: number) => void,
   groupInfo?: { groupKey: string; groupName: string; groupType: "album" | "playlist" }
 ): Promise<boolean> {
+  lastDownloadError = "";
   try {
     const already = await isSongDownloaded(track.id);
     if (already) {
@@ -143,17 +147,25 @@ export async function downloadTrack(
     }
 
     const { used, quota } = await getStorageUsage();
-    if (quota - used < 10 * 1024 * 1024) {
+    if (quota > 0 && quota - used < 10 * 1024 * 1024) {
       throw new Error("not enough storage space");
     }
 
     const videoId = await resolveVideoId(track);
     if (!videoId) {
-      throw new Error("could not find track on youtube");
+      throw new Error("could not find this song's audio source");
     }
 
-    // Download via edge function (server-side proxy, no CORS issues)
-    const blob = await downloadViaEdge(videoId, onProgress);
+    // Download via edge function (server-side proxy, no CORS issues).
+    // One retry — transient upstream failures are common.
+    let blob: Blob;
+    try {
+      blob = await downloadViaEdge(videoId, onProgress);
+    } catch (first) {
+      console.warn("[Download] retrying:", first);
+      await new Promise((r) => setTimeout(r, 1200));
+      blob = await downloadViaEdge(videoId, onProgress);
+    }
     if (!blob || blob.size < 10000) {
       throw new Error("downloaded file is empty");
     }
@@ -175,6 +187,7 @@ export async function downloadTrack(
     await saveSong(offlineSong);
     return true;
   } catch (error) {
+    lastDownloadError = error instanceof Error ? error.message : String(error);
     console.error("[Download] Failed:", error);
     return false;
   }
