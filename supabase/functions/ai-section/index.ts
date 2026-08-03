@@ -70,6 +70,30 @@ async function callViaXai(systemPrompt: string, userPrompt: string): Promise<str
   } catch (e) { console.warn("xai ai-section error", e); return null; }
 }
 
+async function callViaOpenRouter(systemPrompt: string, userPrompt: string): Promise<string | null> {
+  const KEY = Deno.env.get("OPENROUTER_API_KEY");
+  if (!KEY) return null;
+  try {
+    const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${KEY}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://routenet.lovable.app",
+        "X-Title": "RouteNet Music",
+      },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash",
+        messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
+        response_format: { type: "json_object" },
+      }),
+    });
+    if (!r.ok) { console.warn("openrouter ai-section failed", r.status, await r.text()); return null; }
+    const d = await r.json();
+    return d.choices?.[0]?.message?.content || null;
+  } catch (e) { console.warn("openrouter ai-section error", e); return null; }
+}
+
 /**
  * Generate 15 song suggestions for a homepage section.
  * Body: { section: { id, title, aiRule, contentType }, user: { artists, genres, location, ageRange, name } }
@@ -169,6 +193,12 @@ Return ${count} ${itemKind}. Mix popular hits with some discoveries. If the rule
     if (tracks.length === 0) {
       const text = await callViaXai(systemPrompt, prompt);
       if (text) { tracks = extractTracks(text); if (tracks.length > 0) provider = "xai"; }
+    }
+
+    // 4) OpenRouter
+    if (tracks.length === 0) {
+      const text = await callViaOpenRouter(systemPrompt, prompt);
+      if (text) { tracks = extractTracks(text); if (tracks.length > 0) provider = "openrouter"; }
     }
 
     return new Response(JSON.stringify({ tracks, provider }), {
