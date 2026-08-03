@@ -19,11 +19,8 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const key = Deno.env.get("LOVABLE_API_KEY");
-    if (!key) {
-      return json({ error: "LOVABLE_API_KEY not configured" }, 500);
-    }
     const body = (await req.json().catch(() => ({}))) as Body;
+
     const count = Math.max(10, Math.min(60, body.count ?? 50));
     const seed = body.seed;
     const signals = (body.signals ?? []).slice(0, 40);
