@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search as SearchIcon, Mic, MicOff, X, Loader2, Clock, User, Music, Disc, Radio } from "lucide-react";
+import { Search as SearchIcon, Mic, MicOff, X, Loader2, Clock, User, Music, Disc, Radio, Play } from "lucide-react";
 import { TrackCard } from "@/components/cards/TrackCard";
 import { ArtistCard } from "@/components/cards/ArtistCard";
 import { AlbumCard, Album } from "@/components/cards/AlbumCard";
