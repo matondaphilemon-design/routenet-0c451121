@@ -9,6 +9,7 @@ interface Body {
   signals?: Signal[];
   followedArtists?: string[];
   excludeTitles?: string[];
+  distribution?: Record<string, number>;
   count?: number;
 }
 
