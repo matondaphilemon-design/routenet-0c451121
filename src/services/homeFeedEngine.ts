@@ -342,8 +342,8 @@ export function pinnedSections(input: FeedInput): SectionDescriptor[] {
   const artists = taste(input.followedArtists);
   const genres = input.followedGenres;
   return pool<SectionDescriptor | null>([
-    { id: "p-made-for-you", title: "Made For You", subtitle: "Albums picked from the artists you play", kind: "albums",
-      load: madeForYouAlbums(artists, genres, 20) },
+    { id: "p-made-for-you", title: "Made For You", subtitle: "Songs picked from the artists you play", kind: "songs",
+      load: madeForYouSongs(artists, genres, 20) },
     { id: "p-top-picks", title: "Top Picks For You", subtitle: "Your strongest matches right now", kind: "songs",
       load: topPicks(artists, genres, 20) },
   ]) as SectionDescriptor[];
