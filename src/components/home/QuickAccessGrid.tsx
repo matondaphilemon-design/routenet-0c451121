@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Heart, Music2, Play } from "lucide-react";
-import type { Track } from "@/data/mockData";
 import { usePlayer } from "@/context/PlayerContext";
 import { useListeningHistory } from "@/hooks/useListeningHistory";
 import { getUserPlaylists, type PlaylistRow } from "@/services/playlistService";
@@ -25,19 +24,7 @@ export function QuickAccessGrid() {
 
   const recentSongs = history.slice(0, 6);
 
-  /** Albums pulled out of what was recently listened to. */
-  const recentAlbums = useMemo(() => {
-    const seen = new Map<string, Track>();
-    for (const t of history) {
-      const key = (t.album || "").trim().toLowerCase();
-      if (!key || seen.has(key)) continue;
-      seen.set(key, t);
-      if (seen.size >= 6) break;
-    }
-    return [...seen.values()];
-  }, [history]);
-
-  const hasAnything = recentSongs.length > 0 || recentAlbums.length > 0 || playlists.length > 0;
+  const hasAnything = recentSongs.length > 0 || playlists.length > 0;
   if (!hasAnything) return null;
 
   return (
@@ -57,27 +44,6 @@ export function QuickAccessGrid() {
                 <Play className="h-4 w-4 shrink-0 text-primary opacity-0 transition-opacity group-hover:opacity-100" fill="currentColor" />
               </button>
             ))}
-          </div>
-        </section>
-      )}
-
-      {recentAlbums.length > 0 && (
-        <section className="space-y-2.5">
-          <h2 className="px-1 text-[15px] font-extrabold tracking-tight text-foreground">Albums You Played</h2>
-          <div className="-mx-4 overflow-x-auto px-4 pb-1 scrollbar-hide">
-            <div className="flex gap-3">
-              {recentAlbums.map((t) => (
-                <button
-                  key={`al-${t.album}`}
-                  onClick={() => navigate(`/album/${encodeURIComponent(t.album || "")}`)}
-                  className="w-[34vw] max-w-[150px] shrink-0 text-left active:scale-[0.97] transition-transform"
-                >
-                  <img src={t.artwork || "/placeholder.svg"} alt="" className="aspect-square w-full rounded-lg object-cover" />
-                  <p className="mt-1.5 line-clamp-1 text-[12.5px] font-bold text-foreground">{t.album}</p>
-                  <p className="line-clamp-1 text-[11px] text-muted-foreground">{t.artist}</p>
-                </button>
-              ))}
-            </div>
           </div>
         </section>
       )}
