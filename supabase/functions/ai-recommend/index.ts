@@ -2,6 +2,8 @@
 // and recent user taste signals. Model output is title/artist pairs that the
 // client resolves via the existing `deezer` edge function.
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import { chatJson, LlmUnavailableError } from "../_shared/llm.ts";
+
 
 interface Signal { type: string; title?: string; artist?: string; genre?: string; weight?: number }
 interface Body {
