@@ -157,16 +157,42 @@ const dailyFlow = (artists: string[], genres: { id: number | string }[], limit =
     return songsOrChart(merged, limit, true);
   };
 
-/** Top Picks — the strongest personal matches, song-first. */
+/**
+ * Top Picks — the strongest personal matches, songs only. Padding from the
+ * global chart is deliberately avoided when we know the listener's artists,
+ * so nothing unrelated to their taste can leak into the row.
+ */
 const topPicks = (artists: string[], genres: { id: number | string }[], limit = 20) =>
   async (): Promise<SectionResult> => {
-    const ids = (await Promise.all(artists.slice(0, 4).map(resolveArtistId))).filter(Boolean) as number[];
-    const tops = await Promise.all(ids.map((id) => getArtistTopTracks(id, 6)));
+    const ids = (await Promise.all(artists.slice(0, 6).map(resolveArtistId))).filter(Boolean) as number[];
+    const tops = await Promise.all(ids.map((id) => getArtistTopTracks(id, 5)));
+    const related = (await Promise.all(ids.slice(0, 3).map((id) => getArtistRelated(id, 4)))).flat();
+    const relatedIds = related.map((a: any) => a?.id).filter(Boolean).slice(0, 5) as number[];
+    const relatedTops = await Promise.all(relatedIds.map((id) => getArtistTopTracks(id, 4)));
+    const merged = roundRobin([...tops, ...relatedTops], limit + 8);
+    if (merged.length >= 6) return { songs: await withDeezer(dedupeTracks(merged.map(deezerTrack)).slice(0, limit)) };
     const genreLists = await Promise.all(genres.slice(0, 2).map((g) => getGenreTracks(Number(g.id), 12)));
-    return songsOrChart(roundRobin([...tops, ...genreLists], limit + 8), limit);
+    return songsOrChart(roundRobin([...merged, ...genreLists], limit + 8), limit);
   };
 
-/** Made For You — recommended albums, artists and playlists in one row set. */
+/**
+ * Made For You — songs (not albums) drawn from artists close to the ones the
+ * listener actually plays, skipping anything already heard.
+ */
+const madeForYouSongs = (artists: string[], genres: { id: number | string }[], limit = 20) =>
+  async (): Promise<SectionResult> => {
+    const ids = (await Promise.all(artists.slice(0, 4).map(resolveArtistId))).filter(Boolean) as number[];
+    const radios = await Promise.all(ids.map((id) => getArtistRadio(id, 12)));
+    const related = (await Promise.all(ids.slice(0, 3).map((id) => getArtistRelated(id, 5)))).flat();
+    const relatedIds = related.map((a: any) => a?.id).filter(Boolean).slice(0, 6) as number[];
+    const relatedTops = await Promise.all(relatedIds.map((id) => getArtistTopTracks(id, 4)));
+    const merged = roundRobin([...radios, ...relatedTops], limit + 10);
+    if (merged.length >= 6) return { songs: await withDeezer(dedupeTracks(merged.map(deezerTrack), true).slice(0, limit)) };
+    const genreLists = await Promise.all(genres.slice(0, 2).map((g) => getGenreTracks(Number(g.id), 12)));
+    return songsOrChart(roundRobin([...merged, ...genreLists], limit + 8), limit, true);
+  };
+
+/** Made For You — recommended albums (kept for genre-specific album rows). */
 const madeForYouAlbums = (artists: string[], genres: { id: number | string }[], limit = 20) =>
   async (): Promise<SectionResult> => {
     const ids = (await Promise.all(artists.slice(0, 3).map(resolveArtistId))).filter(Boolean) as number[];
@@ -316,8 +342,8 @@ export function pinnedSections(input: FeedInput): SectionDescriptor[] {
   const artists = taste(input.followedArtists);
   const genres = input.followedGenres;
   return pool<SectionDescriptor | null>([
-    { id: "p-made-for-you", title: "Made For You", subtitle: "Albums picked from the artists you play", kind: "albums",
-      load: madeForYouAlbums(artists, genres, 20) },
+    { id: "p-made-for-you", title: "Made For You", subtitle: "Songs picked from the artists you play", kind: "songs",
+      load: madeForYouSongs(artists, genres, 20) },
     { id: "p-top-picks", title: "Top Picks For You", subtitle: "Your strongest matches right now", kind: "songs",
       load: topPicks(artists, genres, 20) },
   ]) as SectionDescriptor[];

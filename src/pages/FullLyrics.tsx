@@ -99,8 +99,8 @@ export default function FullLyrics() {
 
       {/* Header */}
       <header className="relative flex items-center justify-between px-5 pt-10 pb-4">
-        <button onClick={() => navigate(-1)} aria-label="Close"
-          className="rounded-full bg-white/10 p-2 backdrop-blur text-white/90 hover:text-white">
+        <button onClick={() => navigate(-1)} aria-label="Close lyrics" type="button"
+          className="rounded-full bg-white/10 p-2 text-white/90 outline-none backdrop-blur transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-white/70">
           <ChevronDown className="h-5 w-5" />
         </button>
         <div className="text-center min-w-0 flex-1 px-3">
@@ -113,7 +113,7 @@ export default function FullLyrics() {
       </header>
 
       {/* Lyric column */}
-      <div className="relative flex-1 overflow-y-auto px-8">
+      <div className="relative flex-1 overflow-y-auto px-8" tabIndex={0} role="region" aria-label="Song lyrics">
         {isLoading && (
           <div className="flex h-full items-center justify-center gap-3 text-white/60">
             <Loader2 className="h-6 w-6 animate-spin" />
@@ -124,7 +124,7 @@ export default function FullLyrics() {
           <div className="flex h-full flex-col items-center justify-center gap-4 text-white/60">
             <Music2 className="h-10 w-10" />
             <p className="font-sans text-sm">Couldn't load lyrics.</p>
-            <button onClick={() => refetch()} className="flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 font-sans text-sm text-white/80">
+            <button onClick={() => refetch()} type="button" aria-label="Retry loading lyrics" className="flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 font-sans text-sm text-white/80 outline-none focus-visible:ring-2 focus-visible:ring-white/70">
               <RefreshCw className="h-4 w-4" /> Retry
             </button>
           </div>
@@ -136,7 +136,7 @@ export default function FullLyrics() {
           </div>
         )}
         {!isLoading && !isError && hasLyrics && (
-          <div className="mx-auto max-w-xl px-2 py-[38vh] space-y-7 text-center">
+          <div className="mx-auto max-w-xl px-2 py-[38vh] space-y-7 text-center" aria-live="polite">
             {(hasSynced ? syncedLines! : plainLines.map((t, i) => ({ time: i, text: t }))).map((line, i) => {
               const isActive = hasSynced && i === activeIndex;
               const isPast = hasSynced && i < activeIndex;
