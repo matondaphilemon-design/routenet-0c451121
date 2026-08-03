@@ -2,6 +2,8 @@
 // and recent user taste signals. Model output is title/artist pairs that the
 // client resolves via the existing `deezer` edge function.
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import { chatJson, LlmUnavailableError } from "../_shared/llm.ts";
+
 
 interface Signal { type: string; title?: string; artist?: string; genre?: string; weight?: number }
 interface Body {
@@ -17,11 +19,8 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const key = Deno.env.get("LOVABLE_API_KEY");
-    if (!key) {
-      return json({ error: "LOVABLE_API_KEY not configured" }, 500);
-    }
     const body = (await req.json().catch(() => ({}))) as Body;
+
     const count = Math.max(10, Math.min(60, body.count ?? 50));
     const seed = body.seed;
     const signals = (body.signals ?? []).slice(0, 40);
@@ -67,38 +66,24 @@ ${exclude.map((t) => `- ${t}`).join("\n") || "(none)"}
 
 Return a JSON object: { "tracks": [{ "title": string, "artist": string, "role": string, "reason": string }] } with exactly ${count} items.`;
 
-    const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Lovable-API-Key": key,
-      },
-      body: JSON.stringify({
-        model: "google/gemini-3.6-flash",
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-        response_format: { type: "json_object" },
-      }),
-    });
-
-    if (!r.ok) {
-      const text = await r.text();
-      console.error("gateway error", r.status, text);
-      // Soft-fail on quota/rate-limit so the app degrades gracefully
-      // instead of surfacing a runtime error / blank screen.
-      if (r.status === 402 || r.status === 429) {
-        return json({ tracks: [], unavailable: true, reason: r.status === 402 ? "insufficient_credits" : "rate_limited" });
+    let parsed: any = {};
+    let provider = "lovable";
+    try {
+      const res = await chatJson<any>({ system, user, json: true, temperature: 0.9 });
+      parsed = res.data ?? {};
+      provider = res.provider;
+    } catch (e) {
+      if (e instanceof LlmUnavailableError) {
+        console.error("[ai-recommend] all providers failed", e.details);
+        return json({ tracks: [], unavailable: true, reason: e.reason, details: e.details });
       }
-      return json({ tracks: [], error: "gateway_error", status: r.status, details: text });
+      throw e;
     }
 
-    const data = await r.json();
-    const content: string = data?.choices?.[0]?.message?.content ?? "{}";
-    let parsed: any = {};
-    try { parsed = JSON.parse(content); } catch { parsed = extractJson(content) ?? {}; }
-    const tracks = Array.isArray(parsed?.tracks) ? parsed.tracks : [];
+    const tracks = Array.isArray(parsed?.tracks)
+      ? parsed.tracks
+      : Array.isArray(parsed) ? parsed : [];
+    const seen = new Set<string>();
     const cleaned = tracks
       .map((t: any) => ({
         title: String(t?.title ?? "").trim(),
@@ -106,9 +91,16 @@ Return a JSON object: { "tracks": [{ "title": string, "artist": string, "role": 
         role: String(t?.role ?? "related").trim().toLowerCase().slice(0, 20),
         reason: String(t?.reason ?? "").trim().slice(0, 140),
       }))
-      .filter((t: any) => t.title && t.artist);
+      .filter((t: any) => {
+        if (!t.title || !t.artist) return false;
+        const k = `${t.title.toLowerCase()}|${t.artist.toLowerCase()}`;
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
 
-    return json({ tracks: cleaned });
+    return json({ tracks: cleaned, provider });
+
   } catch (e) {
     console.error(e);
     return json({ error: "internal", message: String(e) }, 500);

@@ -1,3 +1,4 @@
+import { chatComplete } from "../_shared/llm.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const corsHeaders = {
@@ -62,11 +63,6 @@ serve(async (req) => {
   }
 
   try {
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-    if (!LOVABLE_API_KEY) {
-      throw new Error('LOVABLE_API_KEY not configured');
-    }
-
     const body: KikiRequest = await req.json();
     const { type, transcript, mood, timeOfDay, location } = body;
 
@@ -83,59 +79,24 @@ serve(async (req) => {
       throw new Error('Invalid request type');
     }
 
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-3-flash-preview',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userMessage }
-        ],
+    let content = "";
+    try {
+      const res = await chatComplete({
+        system: systemPrompt,
+        user: userMessage,
+        json: true,
         temperature: 0.7,
-        max_tokens: 1000,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Lovable AI error:', response.status, errorText);
-      
-      if (response.status === 429) {
-        return new Response(JSON.stringify({ 
-          error: "Rate limit exceeded",
-          intent: "unknown",
-          params: {},
-          response: "Whoa, too many requests! Give me a sec to catch my breath 🎧"
-        }), {
-          status: 429,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-      
-      if (response.status === 402) {
-        return new Response(JSON.stringify({ 
-          error: "Credits needed",
-          intent: "unknown",
-          params: {},
-          response: "Oops, we need more credits! Check your Lovable workspace 💳"
-        }), {
-          status: 402,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-      
-      throw new Error(`AI API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
-
-    if (!content) {
-      throw new Error('No response from AI');
+      });
+      content = res.text;
+      console.log('[kiki] provider:', res.provider);
+    } catch (e) {
+      console.error('[kiki] all providers failed', e);
+      return new Response(JSON.stringify({
+        error: 'AI unavailable',
+        intent: 'unknown',
+        params: {},
+        response: "I can't reach my brain right now — try again in a moment 🎧",
+      }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     // Parse the JSON response

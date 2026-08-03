@@ -17,6 +17,7 @@ import { usePreloadYouTube } from "@/hooks/usePreloadYouTube";
 import { getLikedAlbums, toggleLikedAlbum } from "@/pages/Library";
 import { downloadTrack, lastDownloadError } from "@/services/downloadService";
 import { toTitleCase } from "@/utils/toTitleCase";
+import { formatStreams } from "@/utils/formatStreams";
 import { cn } from "@/lib/utils";
 
 type DlState = Record<string, { status: "pending" | "downloading" | "done" | "failed"; percent: number }>;
@@ -60,6 +61,9 @@ export default function AlbumDetail() {
         artwork: album?.cover_xl || album?.cover_big || album?.cover_medium || "",
         duration: t.duration || 0,
         explicit: Boolean(t.explicit_lyrics),
+        streams: typeof t.rank === "number" ? t.rank * 1000 : undefined,
+        trackNumber: t.track_position ?? undefined,
+        diskNumber: t.disk_number ?? undefined,
       })) as Track[],
     [album],
   );
@@ -159,7 +163,13 @@ export default function AlbumDetail() {
               <span className="text-sm font-bold text-foreground">{toTitleCase(album.artist?.name || "")}</span>
             </button>
             <p className="mt-2 text-xs font-semibold text-muted-foreground">
-              {["Album", year, `${tracks.length} songs`, totalLength(tracks)].filter(Boolean).join(" · ")}
+              {[
+                "Album",
+                year,
+                `${tracks.length} songs`,
+                totalLength(tracks),
+                album.label ? String(album.label) : "",
+              ].filter(Boolean).join(" · ")}
             </p>
           </div>
 
@@ -208,7 +218,9 @@ export default function AlbumDetail() {
                     {(track as any).explicit && (
                       <span className="rounded-[3px] bg-muted px-1 text-[9px] font-bold uppercase text-muted-foreground">E</span>
                     )}
-                    <span className="truncate text-[12px] text-muted-foreground">{track.artist}</span>
+                    <span className="truncate text-[12px] text-muted-foreground">
+                      {[track.artist, (track as any).streams ? `${formatStreams((track as any).streams)} plays` : ""].filter(Boolean).join(" · ")}
+                    </span>
                   </span>
                 </span>
                 <span className="shrink-0 text-[12px] tabular-nums text-muted-foreground">

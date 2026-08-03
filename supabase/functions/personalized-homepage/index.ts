@@ -1,3 +1,4 @@
+import { chatComplete } from "../_shared/llm.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const corsHeaders = {
@@ -10,77 +11,13 @@ const corsHeaders = {
  * Returns the raw text content of the assistant message, or null if all failed.
  */
 async function callAIWithFallback(systemPrompt: string, userPrompt: string): Promise<{ content: string; provider: string } | null> {
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-  const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-  const XAI_API_KEY = Deno.env.get("XAI_API_KEY");
-
-  // 1) Lovable AI Gateway
-  if (LOVABLE_API_KEY) {
-    try {
-      const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
-          messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
-        }),
-      });
-      if (r.ok) {
-        const d = await r.json();
-        const c = d.choices?.[0]?.message?.content;
-        if (c) return { content: c, provider: "lovable" };
-      } else {
-        console.warn("lovable ai failed", r.status);
-      }
-    } catch (e) { console.warn("lovable ai error", e); }
+  try {
+    const res = await chatComplete({ system: systemPrompt, user: userPrompt, json: false });
+    return { content: res.text, provider: res.provider };
+  } catch (e) {
+    console.error("[personalized-homepage] all AI providers failed", e);
+    return null;
   }
-
-  // 2) Gemini direct
-  if (GEMINI_API_KEY) {
-    try {
-      const r = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            systemInstruction: { parts: [{ text: systemPrompt }] },
-            contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-          }),
-        }
-      );
-      if (r.ok) {
-        const d = await r.json();
-        const c = d.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (c) return { content: c, provider: "gemini" };
-      } else {
-        console.warn("gemini direct failed", r.status);
-      }
-    } catch (e) { console.warn("gemini direct error", e); }
-  }
-
-  // 3) xAI grok
-  if (XAI_API_KEY) {
-    try {
-      const r = await fetch("https://api.x.ai/v1/chat/completions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${XAI_API_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "grok-2-latest",
-          messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
-        }),
-      });
-      if (r.ok) {
-        const d = await r.json();
-        const c = d.choices?.[0]?.message?.content;
-        if (c) return { content: c, provider: "xai" };
-      } else {
-        console.warn("xai failed", r.status);
-      }
-    } catch (e) { console.warn("xai error", e); }
-  }
-
-  return null;
 }
 
 serve(async (req) => {

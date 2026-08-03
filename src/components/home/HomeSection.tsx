@@ -85,6 +85,10 @@ function HomeSectionImpl({ slot, user, onPlay, hideStreams, excludeIds, onResolv
   const isEmpty = items !== null && items.length === 0;
   const title = toTitleCase(slot.title);
 
+  // A section that resolved to nothing is removed entirely — no empty rows,
+  // no placeholder cards, no dangling headings.
+  if (isEmpty) return <section ref={ref} data-section-id={slot.id} className="hidden" />;
+
   // Hero layout: full-width artist spotlight card
   if (slot.layout === "hero") {
     const first = tracks[0];

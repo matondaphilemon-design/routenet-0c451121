@@ -1,3 +1,4 @@
+import { chatJson } from "../_shared/llm.ts";
 // deno-lint-ignore-file no-explicit-any
 // Piped (YouTube) radio candidate source — the ONLY recommendation backend.
 // POST { title, artist, videoId?, fanout? } -> { seed, candidates }
@@ -105,35 +106,16 @@ async function neighbourArtists(
   title: string,
   artist: string,
 ): Promise<{ genre: string; artists: string[] }> {
-  if (!LOVABLE_API_KEY || !artist) return { genre: "", artists: [] };
+  if (!artist) return { genre: "", artists: [] };
   try {
-    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      signal: AbortSignal.timeout(12000),
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are a music curator. Given a seed song, return the artists that belong to the same musical world (same genre, subgenre, scene and mood). Deliberately mix established names, mid-career artists, rising artists, independent artists and regional artists from that same scene. Never repeat the same handful of superstars. Reply with JSON only.",
-          },
-          {
-            role: "user",
-            content: `Seed song: "${title}" by ${artist}.\nReturn JSON: {"genre":"<genre/subgenre>","artists":["<24 DISTINCT artist names in that scene: roughly 8 established, 8 rising/independent, 8 regional or lesser-known. Do not repeat the seed artist.>"]}`,
-          },
-        ],
-        temperature: 1,
-        response_format: { type: "json_object" },
-      }),
+    const { data } = await chatJson<any>({
+      system:
+        "You are a music curator. Given a seed song, return the artists that belong to the same musical world (same genre, subgenre, scene and mood). Deliberately mix established names, mid-career artists, rising artists, independent artists and regional artists from that same scene. Never repeat the same handful of superstars. Reply with JSON only.",
+      user: `Seed song: "${title}" by ${artist}.\nReturn JSON: {"genre":"<genre/subgenre>","artists":["<24 DISTINCT artist names in that scene: roughly 8 established, 8 rising/independent, 8 regional or lesser-known. Do not repeat the seed artist.>"]}`,
+      json: true,
+      temperature: 1,
     });
-    if (!res.ok) return { genre: "", artists: [] };
-    const j = await res.json();
-    const parsed = JSON.parse(j?.choices?.[0]?.message?.content ?? "{}");
+    const parsed = data ?? {};
     const list = Array.isArray(parsed?.artists) ? parsed.artists : [];
     return {
       genre: String(parsed?.genre ?? "").trim(),

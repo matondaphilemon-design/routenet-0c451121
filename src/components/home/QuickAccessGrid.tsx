@@ -1,30 +1,17 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Heart, Music2, Play } from "lucide-react";
+import { Play } from "lucide-react";
 import { usePlayer } from "@/context/PlayerContext";
 import { useListeningHistory } from "@/hooks/useListeningHistory";
-import { getUserPlaylists, type PlaylistRow } from "@/services/playlistService";
-import { useLikedSongs } from "@/hooks/useLikedSongs";
 
 /**
  * Home quick access — the songs, albums and playlists the listener actually
  * came back for, instead of a grid of static feature shortcuts.
  */
 export function QuickAccessGrid() {
-  const navigate = useNavigate();
   const { playTrack } = usePlayer();
   const { history } = useListeningHistory();
-  const [playlists, setPlaylists] = useState<PlaylistRow[]>([]);
-
-  useEffect(() => {
-    getUserPlaylists().then((p) => setPlaylists(p || [])).catch(() => setPlaylists([]));
-  }, []);
-
-  const { songs: likedSongs } = useLikedSongs();
-
   const recentSongs = history.slice(0, 6);
 
-  const hasAnything = recentSongs.length > 0 || playlists.length > 0;
+  const hasAnything = recentSongs.length > 0;
   if (!hasAnything) return null;
 
   return (
@@ -48,40 +35,6 @@ export function QuickAccessGrid() {
         </section>
       )}
 
-      <section className="space-y-2.5">
-        <h2 className="px-1 text-[15px] font-extrabold tracking-tight text-foreground">Your Playlists</h2>
-        <div className="-mx-4 overflow-x-auto px-4 pb-1 scrollbar-hide">
-          <div className="flex gap-3">
-            <button
-              onClick={() => navigate("/liked")}
-              className="w-[34vw] max-w-[150px] shrink-0 text-left active:scale-[0.97] transition-transform"
-            >
-              <div className="flex aspect-square w-full items-center justify-center rounded-lg bg-gradient-to-br from-primary/80 to-primary/30">
-                <Heart className="h-8 w-8 text-primary-foreground" fill="currentColor" />
-              </div>
-              <p className="mt-1.5 line-clamp-1 text-[12.5px] font-bold text-foreground">Liked Songs</p>
-              <p className="line-clamp-1 text-[11px] text-muted-foreground">{(likedSongs || []).length} songs</p>
-            </button>
-            {playlists.slice(0, 8).map((p) => (
-              <button
-                key={p.id}
-                onClick={() => navigate(`/user-playlist/${p.id}`)}
-                className="w-[34vw] max-w-[150px] shrink-0 text-left active:scale-[0.97] transition-transform"
-              >
-                {p.cover_image ? (
-                  <img src={p.cover_image} alt="" className="aspect-square w-full rounded-lg object-cover" />
-                ) : (
-                  <div className="flex aspect-square w-full items-center justify-center rounded-lg bg-secondary">
-                    <Music2 className="h-7 w-7 text-muted-foreground" />
-                  </div>
-                )}
-                <p className="mt-1.5 line-clamp-1 text-[12.5px] font-bold text-foreground">{p.name}</p>
-                <p className="line-clamp-1 text-[11px] text-muted-foreground">Playlist</p>
-              </button>
-            ))}
-          </div>
-        </div>
-      </section>
     </div>
   );
 }

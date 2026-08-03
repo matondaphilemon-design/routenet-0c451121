@@ -1,3 +1,4 @@
+import { chatJson } from "../_shared/llm.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0";
 
@@ -20,9 +21,6 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
-    const apiKey = Deno.env.get("LOVABLE_API_KEY") || "";
-    if (!apiKey) throw new Error("LOVABLE_API_KEY not configured");
 
     const playlistCount = Math.min(Math.max(count || 5, 1), 10);
 
@@ -51,49 +49,18 @@ Rules:
 - Mix popular hits with deeper cuts
 - If the user describes specific themes, use them. Otherwise infer from context.`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: prompt },
-        ],
-        temperature: 0.95,
-        max_tokens: 4000,
-      }),
+    const { data: parsedResult, provider: usedProvider, raw } = await chatJson<any>({
+      system: systemPrompt,
+      user: prompt,
+      json: true,
+      temperature: 0.95,
     });
-
-    if (!response.ok) {
-      if (response.status === 429) {
-        return new Response(JSON.stringify({ error: "Rate limited. Please try again in a moment." }), {
-          status: 429,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "AI credits exhausted. Please add credits." }), {
-          status: 402,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      const errorText = await response.text();
-      console.error("AI error:", response.status, errorText);
-      throw new Error(`AI API error: ${response.status}`);
+    console.log("[ai-batch-playlist] provider:", usedProvider);
+    if (!parsedResult) {
+      console.error("[ai-batch-playlist] unparseable response:", raw.slice(0, 400));
+      throw new Error("No parseable response from AI");
     }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) throw new Error("No response from AI");
-
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("No JSON in response");
-
-    const result = JSON.parse(jsonMatch[0]);
+    const result = parsedResult;
 
     // Now resolve tracks via Deezer and save playlists to DB as public (no user_id needed)
     const supabaseUrl = Deno.env.get("SUPABASE_URL");

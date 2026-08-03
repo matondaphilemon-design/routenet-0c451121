@@ -1,3 +1,4 @@
+import { chatComplete } from "../_shared/llm.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const corsHeaders = {
@@ -13,10 +14,6 @@ serve(async (req) => {
   try {
     const { request, currentMood, playlistTracks, recentlyPlayed, skipHistory, setSize, userPreferences, weightedSelection } = await req.json();
     
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
-    }
 
     // Build playlist context
     let playlistContext = "";
@@ -125,55 +122,28 @@ Respond ONLY with valid JSON:
   "nextMoodSuggestion": "What mood to try next after this set"
 }`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: request || `Start a ${currentMood || 'vibe-matched'} DJ set` }
-        ],
+    let content = "";
+    try {
+      const res = await chatComplete({
+        system: systemPrompt,
+        user: request || `Start a ${currentMood || "vibe-matched"} DJ set`,
+        json: true,
         temperature: 0.85,
-        max_tokens: 600,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("AI gateway error:", response.status, errorText);
-      
-      if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ 
-            mood: currentMood,
-            commentary: "I'm getting lots of requests! Let me catch my breath.",
-            tracks: [],
-            setTheme: "Pause",
-            nextMoodSuggestion: currentMood
-          }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      
-      if (response.status === 402) {
-        return new Response(
-          JSON.stringify({ error: "Payment required, please add funds to your Lovable AI workspace." }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      
-      throw new Error(`AI gateway error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
-    
-    if (!content) {
-      throw new Error("No response from AI");
+      });
+      content = res.text;
+      console.log("[ai-dj] provider:", res.provider);
+    } catch (e) {
+      console.error("[ai-dj] all providers failed", e);
+      return new Response(
+        JSON.stringify({
+          mood: currentMood,
+          commentary: "I'm having trouble reaching the booth right now. Try again in a moment.",
+          tracks: [],
+          setTheme: "Pause",
+          nextMoodSuggestion: currentMood,
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
     let result;

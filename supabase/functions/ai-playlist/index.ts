@@ -1,4 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { chatJson } from "../_shared/llm.ts";
+
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -40,62 +42,15 @@ Rules:
 - The playlist name should be creative, not just repeat the prompt
 - There is NO limit on how many songs you can include`;
 
-    let apiUrl: string;
-    let apiKey: string;
-    let model: string;
-    let headers: Record<string, string>;
-
-    if (provider === "xai") {
-      apiKey = Deno.env.get("XAI_API_KEY") || "";
-      if (!apiKey) throw new Error("XAI_API_KEY not configured");
-      apiUrl = "https://api.x.ai/v1/chat/completions";
-      model = "grok-3-mini-fast";
-      headers = {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      };
-    } else {
-      // Default: Gemini via Lovable gateway
-      apiKey = Deno.env.get("LOVABLE_API_KEY") || "";
-      if (!apiKey) throw new Error("LOVABLE_API_KEY not configured");
-      apiUrl = "https://ai.gateway.lovable.dev/v1/chat/completions";
-      model = "google/gemini-3-flash-preview";
-      headers = {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      };
-    }
-
-    const response = await fetch(apiUrl, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: prompt },
-        ],
-        temperature: 0.9,
-        max_tokens: 1500,
-      }),
+    const { data: result, provider: usedProvider } = await chatJson<any>({
+      system: systemPrompt,
+      user: prompt,
+      json: true,
+      temperature: 0.9,
     });
+    if (!result) throw new Error("No parseable response from AI");
+    console.log("[ai-playlist] provider:", usedProvider);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`AI error (${provider}):`, response.status, errorText);
-      throw new Error(`AI API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
-
-    if (!content) throw new Error("No response from AI");
-
-    // Extract JSON
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("No JSON in response");
-
-    const result = JSON.parse(jsonMatch[0]);
 
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

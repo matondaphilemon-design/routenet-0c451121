@@ -167,71 +167,106 @@ export default function PlaylistDetail() {
   }
 
   return (
-    <div className="custom-scrollbar min-h-screen overflow-y-auto">
-      <div className="relative">
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-[420px] overflow-hidden">
-          <img src={cover} alt="" className="h-full w-full scale-110 object-cover opacity-30 blur-[80px]" />
-          <div className="absolute inset-0 bg-gradient-to-b from-background/60 via-background/90 to-background" />
+    <div className="custom-scrollbar min-h-screen overflow-y-auto bg-background">
+      {/* Hero — artwork-derived gradient wash */}
+      <div className="relative overflow-hidden">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[560px]">
+          <img src={cover} alt="" className="h-full w-full scale-125 object-cover opacity-40 blur-[90px] saturate-150" />
+          <div className="absolute inset-0 bg-gradient-to-b from-background/30 via-background/75 to-background" />
         </div>
-        <motion.header initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="relative flex items-center justify-between px-4 pt-4">
-          <button onClick={() => navigate(-1)} className="p-2"><ChevronLeft className="h-6 w-6 text-foreground" /></button>
-          <h1 className="text-lg font-bold text-foreground">Playlist</h1>
-          <button className="p-2"><MoreHorizontal className="h-5 w-5 text-muted-foreground" /></button>
+
+        <motion.header
+          initial={{ opacity: 0, y: -16 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="relative flex items-center justify-between px-3 pt-4"
+        >
+          <button onClick={() => navigate(-1)} aria-label="Go back" className="flex h-10 w-10 items-center justify-center rounded-full bg-background/50 backdrop-blur">
+            <ChevronLeft className="h-6 w-6 text-foreground" />
+          </button>
+          <div className="flex items-center gap-1">
+            <button onClick={() => setShowSearch((v) => !v)} aria-label="Search in playlist" className="flex h-10 w-10 items-center justify-center rounded-full bg-background/50 backdrop-blur">
+              <Search className="h-5 w-5 text-foreground" />
+            </button>
+            <button aria-label="More options" className="flex h-10 w-10 items-center justify-center rounded-full bg-background/50 backdrop-blur">
+              <MoreHorizontal className="h-5 w-5 text-foreground" />
+            </button>
+          </div>
         </motion.header>
 
-        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.1 }} className="relative mx-auto mt-4 w-60 max-w-[70vw]">
-          <div className="aspect-square overflow-hidden rounded-xl shadow-2xl">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.92 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.08 }}
+          className="relative mx-auto mt-6 w-[64vw] max-w-[260px]"
+        >
+          <div className="aspect-square overflow-hidden rounded-2xl shadow-[0_24px_60px_-18px_rgba(0,0,0,0.85)]">
             <img src={cover} alt={title} className="h-full w-full object-cover" />
           </div>
         </motion.div>
 
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="relative mt-6 px-4 text-center">
-          <h1 className="text-[26px] font-black leading-tight tracking-tight text-foreground">{title}</h1>
-          {playlist?.description && <p className="mt-1 text-sm text-muted-foreground">{playlist.description}</p>}
-          <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Playlist • {creator} • {tracks.length} songs • {totalMinutes} min</p>
+        <motion.div
+          initial={{ opacity: 0, y: 18 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.14 }}
+          className="relative mt-7 px-5"
+        >
+          <h1 className="text-[27px] font-black leading-[1.1] tracking-tight text-foreground">{title}</h1>
+          {playlist?.description && (
+            <p className="mt-1.5 line-clamp-2 text-[13px] leading-snug text-muted-foreground">{playlist.description}</p>
+          )}
+          <div className="mt-3 flex items-center gap-2">
+            <div className="flex h-6 w-6 items-center justify-center overflow-hidden rounded-full bg-primary/20">
+              <img src={cover} alt="" className="h-full w-full object-cover" />
+            </div>
+            <span className="text-[13px] font-bold text-foreground">{creator}</span>
+          </div>
+          <p className="mt-2 text-[12px] font-semibold text-muted-foreground">
+            {`${tracks.length} songs · ${totalMinutes} min`}
+          </p>
+
+          {/* Action bar */}
+          <div className="mt-5 flex items-center gap-5">
+            <button onClick={() => setIsLiked(!isLiked)} aria-label={isLiked ? "Unlike playlist" : "Like playlist"}>
+              <Heart className={`h-6 w-6 ${isLiked ? "fill-primary text-primary" : "text-muted-foreground"}`} />
+            </button>
+            <button onClick={handleDownloadAll} disabled={isDownloadingAll} aria-label="Download all">
+              {isDownloadingAll ? <Loader2 className="h-6 w-6 animate-spin text-primary" /> : <Download className="h-6 w-6 text-muted-foreground" />}
+            </button>
+            <button aria-label="Share playlist"><Share2 className="h-6 w-6 text-muted-foreground" /></button>
+            <button onClick={handleShuffle} aria-label="Shuffle play"><Shuffle className="h-6 w-6 text-muted-foreground" /></button>
+            <Button
+              onClick={handlePlayAll}
+              aria-label="Play playlist"
+              className="ml-auto h-14 w-14 rounded-full bg-primary shadow-glow hover:bg-primary/90"
+            >
+              <Play className="ml-0.5 h-7 w-7 text-primary-foreground" fill="currentColor" />
+            </Button>
+          </div>
         </motion.div>
       </div>
 
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.25 }} className="mt-4 px-4 flex gap-2">
-        <button onClick={() => setShowSearch(!showSearch)} className="glass-card flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground flex-1">
-          <Search className="h-4 w-4" /> Search
-        </button>
-        <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}
-          className="glass-card rounded-xl bg-transparent px-3 py-2 text-sm text-foreground outline-none">
-          <option value="default">Default</option>
-          <option value="name">Name</option>
-          <option value="duration">Duration</option>
-        </select>
-      </motion.div>
-
       {showSearch && (
-        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="px-4 mt-2">
-          <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="mt-4 flex gap-2 px-5">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search in playlist..."
-            className="w-full rounded-full border border-border/30 bg-muted/30 px-4 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none"
-            autoFocus />
+            className="min-w-0 flex-1 rounded-full border border-border/30 bg-muted/30 px-4 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none"
+            autoFocus
+          />
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as any)}
+            className="rounded-full border border-border/30 bg-muted/30 px-3 py-2 text-sm text-foreground outline-none"
+          >
+            <option value="default">Default</option>
+            <option value="name">Name</option>
+            <option value="duration">Duration</option>
+          </select>
         </motion.div>
       )}
 
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }} className="mt-4 flex items-center justify-between px-4">
-        <div className="flex items-center gap-3">
-          <button onClick={() => setIsLiked(!isLiked)} className="p-2">
-            <Heart className={`h-6 w-6 ${isLiked ? "fill-primary text-primary" : "text-muted-foreground"}`} />
-          </button>
-          <button className="p-2"><Share2 className="h-6 w-6 text-muted-foreground" /></button>
-          <button onClick={handleDownloadAll} className="p-2" disabled={isDownloadingAll} aria-label="Download all">
-            {isDownloadingAll ? <Loader2 className="h-6 w-6 animate-spin text-primary" /> : <Download className="h-6 w-6 text-muted-foreground" />}
-          </button>
-        </div>
-        <div className="flex items-center gap-3">
-          <Button onClick={handleShuffle} variant="ghost" size="icon" className="h-12 w-12 rounded-full text-primary">
-            <Shuffle className="h-6 w-6" />
-          </Button>
-          <Button onClick={handlePlayAll} className="h-14 w-14 rounded-full bg-primary hover:bg-primary/90">
-            <Play className="h-7 w-7 text-primary-foreground" fill="currentColor" />
-          </Button>
-        </div>
-      </motion.div>
 
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="mt-5 px-4 pb-24">
         <div className="space-y-1">

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search as SearchIcon, Mic, MicOff, X, Loader2, Clock, User, Music, Disc, Radio } from "lucide-react";
+import { Search as SearchIcon, Mic, MicOff, X, Loader2, Clock, User, Music, Disc, Radio, Play } from "lucide-react";
 import { TrackCard } from "@/components/cards/TrackCard";
 import { ArtistCard } from "@/components/cards/ArtistCard";
 import { AlbumCard, Album } from "@/components/cards/AlbumCard";
@@ -178,7 +178,6 @@ export default function Search() {
   const topItems = [
     ...filteredTracks.map(t => ({ type: 'track' as const, score: scoreMatch(debouncedQuery, t), item: t })),
     ...filteredArtists.map(a => ({ type: 'artist' as const, score: scoreMatch(debouncedQuery, { name: a.name }), item: a })),
-    ...filteredAlbums.map(a => ({ type: 'album' as const, score: scoreMatch(debouncedQuery, a), item: a })),
     ...matchingPlaylists.map(p => ({ type: 'playlist' as const, score: scoreMatch(debouncedQuery, { title: p.name }), item: p })),
   ].sort((a, b) => b.score - a.score);
 
@@ -247,23 +246,27 @@ export default function Search() {
                         onClick={() => {
                           playTrack(t, filteredTracks);
                         }}>
-                        <div className="relative h-14 w-14 flex-shrink-0 overflow-hidden rounded-xl">
+                        <div className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-xl">
                           <img src={t.artwork} alt="" loading="lazy" className="h-full w-full object-cover" />
-                          <div className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition-opacity group-hover:opacity-100">
-                            <Music className="h-5 w-5 text-white" />
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
+                            <Play className="h-6 w-6 text-white" fill="currentColor" />
                           </div>
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
-                            <p className="truncate text-sm font-semibold text-foreground">{t.title}</p>
+                            <p className="truncate text-[15px] font-bold leading-tight text-foreground">{t.title}</p>
                             {(t as any).explicit && (
                               <span className="rounded-[3px] bg-muted px-1 text-[9px] font-bold text-muted-foreground">E</span>
                             )}
                           </div>
-                          <p className="truncate text-xs text-muted-foreground">
-                            {[t.artist, t.album && t.album !== "Unknown Album" ? t.album : "", formatDuration(t.duration)].filter(Boolean).join(" • ")}
-                          </p>
+                          <p className="mt-0.5 truncate text-[12.5px] font-medium text-muted-foreground">{t.artist}</p>
+                          {t.album && t.album !== "Unknown Album" && (
+                            <p className="truncate text-[11px] text-muted-foreground/70">{t.album}</p>
+                          )}
                         </div>
+                        <span className="shrink-0 pr-1 text-[11px] font-semibold tabular-nums text-muted-foreground">
+                          {formatDuration(t.duration)}
+                        </span>
                       </motion.div>
                     );
 
@@ -278,20 +281,6 @@ export default function Search() {
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-semibold text-foreground">{a.name}</p>
                           <p className="truncate text-xs text-muted-foreground">Artist</p>
-                        </div>
-                      </motion.div>
-                    );
-                  }
-                  if (entry.type === 'album') {
-                    const a = entry.item as Album;
-                    return (
-                      <motion.div key={`al-${a.id}`} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i * 0.03, 0.3) }}
-                        className="flex items-center gap-3 rounded-lg p-2 cursor-pointer hover:bg-white/10 active:bg-white/15 transition-colors"
-                        onClick={() => navigate(`/album/${a.id.toString().replace("deezer-", "")}`)}>
-                        <img src={a.artwork} alt="" className="h-12 w-12 rounded-lg object-cover flex-shrink-0" />
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold text-foreground">{a.title}</p>
-                          <p className="truncate text-xs text-muted-foreground">Album • {a.artist}</p>
                         </div>
                       </motion.div>
                     );
