@@ -67,28 +67,29 @@ function splitTitle(rawTitle: string, channel: string): { title: string; artist:
 // Step 1 — Piped (primary, playable)
 // ---------------------------------------------------------------------------
 
-/** Uploads that mimic real releases (covers, AI clones, edits, karaoke). */
-const MIMIC_TITLE = /(karaoke|cover version|\bcover\b|ai cover|ai version|nightcore|sped\s*up|slowed|reverb|8d audio|remake|instrumental|lyrics video|tribute|type beat|mashup|loop|1 hour|hour version|ringtone|reaction)/i;
-const MIMIC_CHANNEL = /(karaoke|lyrics|lyric|ai cover|covers?\b|tribute|fan made|nightcore|instrumental|sped up|topic music|no copyright)/i;
+/**
+ * Search Engine V2 — Piped is the primary source and everything returned must
+ * be playable. Filtering is deliberately light: only obvious non-songs are
+ * dropped (karaoke, ringtones, reactions, hour loops), so real releases,
+ * remixes and live versions all stay in the list. Ranking does the rest.
+ */
+const JUNK_TITLE = /(karaoke|ringtone|reaction|1\s*hour|hour version|type beat|full album|album mix|mixtape mix|dj set|compilation)/i;
+const JUNK_CHANNEL = /(karaoke|no copyright|type beat)/i;
 const OFFICIAL_CHANNEL = /(vevo|- topic|official|records|music)/i;
 
-function isMimic(rawTitle: string, channel: string): boolean {
-  const t = String(rawTitle || "");
-  const c = String(channel || "");
-  if (MIMIC_TITLE.test(t)) return true;
-  if (MIMIC_CHANNEL.test(c) && !/- topic$/i.test(c.trim())) return true;
-  return false;
+function isJunk(rawTitle: string, channel: string): boolean {
+  return JUNK_TITLE.test(String(rawTitle || "")) || JUNK_CHANNEL.test(String(channel || ""));
 }
 
 async function searchPiped(query: string, limit: number): Promise<SearchTrack[]> {
   const { data, error } = await supabase.functions.invoke("youtube", {
-    body: { action: "search", params: { query: `${query} song`, maxResults: limit + 10 } },
+    body: { action: "search", params: { query, maxResults: limit + 20 } },
   });
   if (error) return [];
   const items: any[] = data?.items || data?.results || data?.videos || [];
   const mapped = items
     .filter((v) => v?.id)
-    .filter((v) => !isMimic(v.title, v.channelTitle))
+    .filter((v) => !isJunk(v.title, v.channelTitle))
     .map((v) => {
       const { title, artist } = splitTitle(v.title, v.channelTitle);
       const duration = typeof v.duration === "number" ? v.duration : Number(v.duration) || 0;
@@ -107,16 +108,34 @@ async function searchPiped(query: string, limit: number): Promise<SearchTrack[]>
         __official: OFFICIAL_CHANNEL.test(channel),
         __views: Number(v.views) || 0,
       } as SearchTrack & { __official: boolean; __views: number };
-    });
+    })
+    // Songs only — drop anything shorter than 45s or longer than 15 min.
+    .filter((t) => !t.duration || (t.duration >= 45 && t.duration <= 900));
 
-  // Official uploads and well-known (high-reach) artists first, then relevance.
+  // Remove duplicate uploads of the same song (same title + artist).
+  const seen = new Set<string>();
+  const unique = mapped.filter((t) => {
+    const key = `${norm(t.artist)}::${norm(t.title)}`;
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  // Relevance first: title/artist match, then official uploads, then reach.
   const q = norm(query);
-  return mapped
+  return unique
     .sort((a: any, b: any) => {
-      const rel = (t: any) =>
-        (norm(t.title).includes(q) || norm(t.artist).includes(q) ? 40 : 0) +
-        (t.__official ? 25 : 0) +
-        Math.min(Math.log10(Math.max(t.__views, 1)) * 4, 24);
+      const rel = (t: any) => {
+        const title = norm(t.title);
+        const artist = norm(t.artist);
+        let s = 0;
+        if (title === q || artist === q) s += 60;
+        else if (title.startsWith(q) || artist.startsWith(q)) s += 45;
+        else if (title.includes(q) || artist.includes(q)) s += 30;
+        if (t.__official) s += 20;
+        s += Math.min(Math.log10(Math.max(t.__views, 1)) * 4, 24);
+        return s;
+      };
       return rel(b) - rel(a);
     })
     .slice(0, limit);
