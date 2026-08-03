@@ -35,6 +35,7 @@ export default function NowPlaying() {
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [showPlaylistDialog, setShowPlaylistDialog] = useState(false);
   const [downloadStatus, setDownloadStatus] = useState<"idle" | "downloading" | "done" | "failed">("idle");
+  const [downloadPercent, setDownloadPercent] = useState(0);
   /** Deezer metadata for the current song (title / artist / album / hi-res art). */
   const [meta, setMeta] = useState<DeezerMeta | null>(null);
 
@@ -95,11 +96,12 @@ export default function NowPlaying() {
   const handleDownload = useCallback(async () => {
     if (!currentTrack || downloadStatus === "downloading") return;
     setDownloadStatus("downloading");
-    const { downloadTrack } = await import("@/services/downloadService");
-    const ok = await downloadTrack(currentTrack);
+    setDownloadPercent(0);
+    const mod = await import("@/services/downloadService");
+    const ok = await mod.downloadTrack(currentTrack, (p) => setDownloadPercent(p));
     setDownloadStatus(ok ? "done" : "failed");
     if (ok) toast.success("Downloaded to offline library");
-    else toast.error("Download failed");
+    else toast.error(mod.lastDownloadError || "Download failed");
   }, [currentTrack, downloadStatus]);
 
   if (!currentTrack) {
@@ -256,7 +258,7 @@ export default function NowPlaying() {
             { icon: Plus, label: "Save to playlist", action: () => setShowPlaylistDialog(true), active: false },
             {
               icon: downloadStatus === "downloading" ? Loader2 : Download,
-              label: downloadStatus === "done" ? "Downloaded" : downloadStatus === "downloading" ? "Downloading" : "Download",
+              label: downloadStatus === "done" ? "Downloaded" : downloadStatus === "downloading" ? `Downloading ${downloadPercent}%` : "Download",
               action: handleDownload,
               active: downloadStatus === "done",
               spin: downloadStatus === "downloading",
