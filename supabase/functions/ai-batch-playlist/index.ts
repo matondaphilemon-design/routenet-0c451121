@@ -56,14 +56,11 @@ Rules:
       temperature: 0.95,
     });
     console.log("[ai-batch-playlist] provider:", usedProvider);
-    const content = raw;
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) throw new Error("No response from AI");
-
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("No JSON in response");
-
-    const result = JSON.parse(jsonMatch[0]);
+    if (!parsedResult) {
+      console.error("[ai-batch-playlist] unparseable response:", raw.slice(0, 400));
+      throw new Error("No parseable response from AI");
+    }
+    const result = parsedResult;
 
     // Now resolve tracks via Deezer and save playlists to DB as public (no user_id needed)
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
