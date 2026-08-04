@@ -565,7 +565,20 @@ function SearchEmptyState({
           <p className="text-sm font-medium text-muted-foreground">Search across songs, artists, albums, playlists and mixes.</p>
         </div>
       )}
+      <AddToPlaylistDialog
+        isOpen={!!playlistTrack}
+        onClose={() => setPlaylistTrack(null)}
+        track={{
+          title: playlistTrack?.title || "",
+          artist: playlistTrack?.artist || "",
+          album: playlistTrack?.album,
+          artwork: playlistTrack?.artwork,
+          duration: playlistTrack?.duration,
+          preview: playlistTrack?.preview,
+        }}
+      />
     </div>
+
   );
 }
 
