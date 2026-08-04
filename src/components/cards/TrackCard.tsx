@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { Play, MoreVertical, Loader2, Youtube, Zap, Database, Heart, Plus, Disc, User as UserIcon, ThumbsDown } from "lucide-react";
+import { Play, MoreVertical, Loader2, Youtube, Zap, Database, Heart, Plus, Disc, User as UserIcon, ThumbsDown, ListPlus } from "lucide-react";
 import { Track, formatDuration } from "@/data/mockData";
 import { usePlayer } from "@/context/PlayerContext";
 import { useState } from "react";
@@ -27,7 +27,7 @@ interface TrackCardProps {
 }
 
 export function TrackCard({ track, index, showIndex, contextTracks, download, hideStreams, radioFromSearch }: TrackCardProps) {
-  const { play, setQueue, currentTrack, isPlaying } = usePlayer();
+  const { play, setQueue, addToQueue, currentTrack, isPlaying } = usePlayer();
   const navigate = useNavigate();
   const { enabled: downloadModeOn, statusOf, startDownload } = useDownloadMode();
   const isCurrentTrack = currentTrack?.id === track.id;
