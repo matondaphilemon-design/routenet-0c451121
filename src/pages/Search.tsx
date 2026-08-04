@@ -432,7 +432,20 @@ export default function Search() {
         />
       )}
       </div>
+      <AddToPlaylistDialog
+        isOpen={!!playlistTrack}
+        onClose={() => setPlaylistTrack(null)}
+        track={{
+          title: playlistTrack?.title || "",
+          artist: playlistTrack?.artist || "",
+          album: playlistTrack?.album,
+          artwork: playlistTrack?.artwork,
+          duration: playlistTrack?.duration,
+          preview: playlistTrack?.preview,
+        }}
+      />
     </div>
+
   );
 }
 
