@@ -264,13 +264,21 @@ export default function Search() {
                             <p className="truncate text-[11px] text-muted-foreground/70">{t.album}</p>
                           )}
                         </div>
-                        <span className="shrink-0 pr-1 text-[11px] font-semibold tabular-nums text-muted-foreground">
+                        <span className="shrink-0 text-[11px] font-semibold tabular-nums text-muted-foreground">
                           {formatDuration(t.duration)}
                         </span>
+                        <SongActionsMenu
+                          track={t}
+                          open={menuTrackId === t.id}
+                          onToggle={() => setMenuTrackId(menuTrackId === t.id ? null : t.id)}
+                          onClose={() => setMenuTrackId(null)}
+                          onAddToPlaylist={() => { setMenuTrackId(null); setPlaylistTrack(t); }}
+                        />
                       </motion.div>
                     );
 
                   }
+
                   if (entry.type === 'artist') {
                     const a = entry.item as Artist;
                     return (
