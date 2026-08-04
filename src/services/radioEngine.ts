@@ -367,12 +367,13 @@ function arrange(pool: Scored[], limit: number): Scored[] {
 }
 
 function toTrack(s: Scored, seed?: Track | null): Track {
+  if (s.track) return s.track;
   return {
     id: `ai-${s.key.replace(/\s+/g, "-")}`,
     title: toTitleCase(s.title),
     artist: toTitleCase(s.artist),
     album: "",
-    artwork: seed?.artwork && false ? seed.artwork : "/placeholder.svg",
+    artwork: "/placeholder.svg",
     duration: 0,
   } as Track;
 }
@@ -380,11 +381,61 @@ function toTrack(s: Scored, seed?: Track | null): Track {
 /** Deezer artwork/album for the head of the queue; the tail resolves lazily. */
 async function decorate(tracks: Track[]): Promise<Track[]> {
   if (!tracks.length) return tracks;
-  const head = await enrichTracks(tracks.slice(0, EAGER_ENRICH), 6).catch(() => tracks.slice(0, EAGER_ENRICH));
+  const needsArt = (t: Track) => !t.artwork || t.artwork === "/placeholder.svg";
+  const head = tracks.slice(0, EAGER_ENRICH);
   const tail = tracks.slice(EAGER_ENRICH);
+  const enrichedHead = head.some(needsArt)
+    ? await enrichTracks(head, 10).catch(() => head)
+    : head;
   // Background: fill in the rest so the queue page and mini player look right.
-  if (tail.length) enrichTracks(tail, 4).catch(() => undefined);
-  return [...head, ...tail];
+  if (tail.some(needsArt)) enrichTracks(tail, 6).catch(() => undefined);
+  return [...enrichedHead, ...tail];
+}
+
+/**
+ * Deezer-only candidate generation. Runs in parallel with the AI call so a
+ * queue is never short (and stays full even when every AI provider is down).
+ */
+async function deezerCandidates(seed: Track | null): Promise<Suggestion[]> {
+  const seedArtist = seed?.artist || followedArtists()[0] || "";
+  const tasteArtists = [...new Set([seedArtist, ...followedArtists()].filter(Boolean))].slice(0, 4);
+
+  const ids = (await Promise.all(tasteArtists.map((a) => resolveArtistId(a).catch(() => null))))
+    .filter(Boolean) as number[];
+
+  const jobs: Promise<any[]>[] = [
+    getChart(40).catch(() => []),
+    getEditorialSelection(0, 30).catch(() => []),
+  ];
+  for (const id of ids) {
+    jobs.push(getArtistRadio(id, 25).catch(() => []));
+    jobs.push(getArtistTopTracks(id, 10).catch(() => []));
+  }
+  // Related artists → their top tracks (one hop, capped for latency).
+  const relatedTop = (async () => {
+    const rel = (await Promise.all(ids.slice(0, 2).map((id) => getArtistRelated(id, 4).catch(() => []))))
+      .flat()
+      .slice(0, 6);
+    const lists = await Promise.all(
+      rel.map((a: any) => getArtistTopTracks(a.id, 5).catch(() => [])),
+    );
+    return lists.flat();
+  })();
+  jobs.push(relatedTop);
+
+  const roles: string[] = ["trending", "recent", ...ids.flatMap(() => ["related", "fanfav"]), "hidden"];
+  const lists = await Promise.all(jobs);
+
+  const out: Suggestion[] = [];
+  lists.forEach((rows, i) => {
+    const role = roles[i] || "related";
+    for (const raw of rows || []) {
+      if (!raw?.title) continue;
+      const track = transformTrack(raw) as Track;
+      out.push({ title: track.title, artist: track.artist, role, track });
+    }
+  });
+  return out;
 }
 
 async function buildBatch(seed: Track | null, existing: Track[], limit: number): Promise<Track[]> {
@@ -392,13 +443,25 @@ async function buildBatch(seed: Track | null, existing: Track[], limit: number):
   if (seed) excludeKeys.add(songKey(seed.title, seed.artist));
   const excludeTitles = existing.slice(-40).map((t) => `${t.title} — ${t.artist}`);
 
-  // Ask for extra so cooldowns and diversity rules still leave a full queue.
-  const suggestions = await askAI(seed, excludeTitles, Math.min(60, Math.ceil(limit * 0.65)));
-  let pool = prepare(suggestions, excludeKeys);
+  // Speed: both AI passes and the Deezer fallback run concurrently instead of
+  // one after another, so a 100-song queue lands in a single round trip.
+  const aiCount = Math.min(70, Math.max(40, Math.ceil(limit * 0.75)));
+  const [aiA, aiB, dz] = await Promise.all([
+    askAI(seed, excludeTitles, aiCount).catch(() => [] as Suggestion[]),
+    limit > 45
+      ? askAI(seed, excludeTitles, aiCount).catch(() => [] as Suggestion[])
+      : Promise.resolve([] as Suggestion[]),
+    deezerCandidates(seed).catch(() => [] as Suggestion[]),
+  ]);
 
-  if (pool.length < limit) {
-    const more = await askAI(seed, [...excludeTitles, ...pool.map((p) => `${p.title} — ${p.artist}`)], 60);
-    pool = [...pool, ...prepare(more, new Set([...excludeKeys, ...pool.map((p) => p.key)]))];
+  // AI suggestions first (better curation), Deezer fills whatever is missing.
+  let pool = prepare([...aiA, ...aiB, ...dz], excludeKeys);
+
+  // Last resort: if cooldowns emptied everything, ignore the per-queue history.
+  if (pool.length < Math.min(limit, 20)) {
+    const relaxed = prepare([...aiA, ...aiB, ...dz], new Set<string>());
+    const seen = new Set(pool.map((p) => p.key));
+    pool = [...pool, ...relaxed.filter((p) => !seen.has(p.key))];
   }
 
   if (!pool.length) return [];
@@ -406,6 +469,7 @@ async function buildBatch(seed: Track | null, existing: Track[], limit: number):
   rememberQueue(arranged.map((c) => c.key));
   return decorate(arranged.map((c) => toTrack(c, seed)));
 }
+
 
 /* ------------------------------------------------------------------ */
 /* Public API                                                          */

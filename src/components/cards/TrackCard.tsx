@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { Play, MoreVertical, Loader2, Youtube, Zap, Database, Heart, Plus, Disc, User as UserIcon, ThumbsDown } from "lucide-react";
+import { Play, MoreVertical, Loader2, Youtube, Zap, Database, Heart, Plus, Disc, User as UserIcon, ThumbsDown, ListPlus } from "lucide-react";
 import { Track, formatDuration } from "@/data/mockData";
 import { usePlayer } from "@/context/PlayerContext";
 import { useState } from "react";
@@ -27,7 +27,7 @@ interface TrackCardProps {
 }
 
 export function TrackCard({ track, index, showIndex, contextTracks, download, hideStreams, radioFromSearch }: TrackCardProps) {
-  const { play, setQueue, currentTrack, isPlaying } = usePlayer();
+  const { play, setQueue, addToQueue, currentTrack, isPlaying } = usePlayer();
   const navigate = useNavigate();
   const { enabled: downloadModeOn, statusOf, startDownload } = useDownloadMode();
   const isCurrentTrack = currentTrack?.id === track.id;
@@ -170,6 +170,15 @@ export function TrackCard({ track, index, showIndex, contextTracks, download, hi
                   <button onClick={(e) => { e.stopPropagation(); setShowMenu(false); setShowPlaylistDialog(true); }} className="flex w-full items-center gap-3 px-3 py-2 text-xs text-foreground hover:bg-muted/20">
                     <Plus className="h-3.5 w-3.5 text-muted-foreground" />Add to Playlist
                   </button>
+                  <button onClick={async (e) => {
+                    e.stopPropagation(); setShowMenu(false);
+                    addToQueue(track);
+                    const { toast } = await import("sonner");
+                    toast.success("Added to queue");
+                  }} className="flex w-full items-center gap-3 px-3 py-2 text-xs text-foreground hover:bg-muted/20">
+                    <ListPlus className="h-3.5 w-3.5 text-muted-foreground" />Add to Queue
+                  </button>
+
                   {track.album && (
                     <button onClick={(e) => { e.stopPropagation(); setShowMenu(false); navigate(`/album/${track.album}`); }} className="flex w-full items-center gap-3 px-3 py-2 text-xs text-foreground hover:bg-muted/20">
                       <Disc className="h-3.5 w-3.5 text-muted-foreground" />Go to Album

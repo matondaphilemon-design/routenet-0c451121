@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search as SearchIcon, Mic, MicOff, X, Loader2, Clock, User, Music, Disc, Radio, Play } from "lucide-react";
+import { Search as SearchIcon, Mic, MicOff, X, Loader2, Clock, User, Music, Disc, Radio, Play, MoreVertical, Plus, Download, ListPlus } from "lucide-react";
+import { AddToPlaylistDialog } from "@/components/AddToPlaylistDialog";
+
 import { TrackCard } from "@/components/cards/TrackCard";
 import { ArtistCard } from "@/components/cards/ArtistCard";
 import { AlbumCard, Album } from "@/components/cards/AlbumCard";
@@ -93,6 +95,70 @@ function formatDuration(seconds?: number) {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+/** Three-dot actions for a search song card. */
+function SongActionsMenu({ track, open, onToggle, onClose, onAddToPlaylist }: {
+  track: Track;
+  open: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  onAddToPlaylist: () => void;
+}) {
+  const { addToQueue } = usePlayer();
+  return (
+    <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
+      <button
+        aria-label="More options"
+        onClick={onToggle}
+        className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-white/10 hover:text-foreground"
+      >
+        <MoreVertical className="h-4 w-4" />
+      </button>
+      <AnimatePresence>
+        {open && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={onClose} />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.92 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.92 }}
+              className="absolute right-0 top-9 z-50 min-w-44 overflow-hidden rounded-xl border border-border/30 bg-card shadow-xl"
+            >
+              <button onClick={onAddToPlaylist} className="flex w-full items-center gap-3 px-3 py-2.5 text-xs font-medium text-foreground hover:bg-muted/20">
+                <Plus className="h-3.5 w-3.5 text-muted-foreground" />Add to playlist
+              </button>
+              <button
+                onClick={async () => {
+                  onClose();
+                  const { toast } = await import("sonner");
+                  const id = toast.loading(`Downloading "${track.title}"…`);
+                  const { saveTrackToDevice } = await import("@/services/downloadService");
+                  const ok = await saveTrackToDevice(track, (p) => toast.loading(`Downloading "${track.title}" — ${p}%`, { id }));
+                  if (ok) toast.success("Saved to your device", { id });
+                  else toast.error("Download failed", { id });
+                }}
+                className="flex w-full items-center gap-3 px-3 py-2.5 text-xs font-medium text-foreground hover:bg-muted/20"
+              >
+                <Download className="h-3.5 w-3.5 text-muted-foreground" />Download
+              </button>
+              <button
+                onClick={async () => {
+                  onClose();
+                  addToQueue(track);
+                  const { toast } = await import("sonner");
+                  toast.success("Added to queue");
+                }}
+                className="flex w-full items-center gap-3 px-3 py-2.5 text-xs font-medium text-foreground hover:bg-muted/20"
+              >
+                <ListPlus className="h-3.5 w-3.5 text-muted-foreground" />Add to queue
+              </button>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 export default function Search() {
   const navigate = useNavigate();
   const { playTrack } = usePlayer();
@@ -103,6 +169,9 @@ export default function Search() {
   const [isListening, setIsListening] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(false);
   const [recognition, setRecognition] = useState<any>(null);
+  const [menuTrackId, setMenuTrackId] = useState<string | null>(null);
+  const [playlistTrack, setPlaylistTrack] = useState<Track | null>(null);
+
 
   const { data: playlists } = useQuery({ queryKey: ["user-playlists"], queryFn: getUserPlaylists, staleTime: 30_000 });
   const { data: genres } = useDeezerGenres();
@@ -264,13 +333,21 @@ export default function Search() {
                             <p className="truncate text-[11px] text-muted-foreground/70">{t.album}</p>
                           )}
                         </div>
-                        <span className="shrink-0 pr-1 text-[11px] font-semibold tabular-nums text-muted-foreground">
+                        <span className="shrink-0 text-[11px] font-semibold tabular-nums text-muted-foreground">
                           {formatDuration(t.duration)}
                         </span>
+                        <SongActionsMenu
+                          track={t}
+                          open={menuTrackId === t.id}
+                          onToggle={() => setMenuTrackId(menuTrackId === t.id ? null : t.id)}
+                          onClose={() => setMenuTrackId(null)}
+                          onAddToPlaylist={() => { setMenuTrackId(null); setPlaylistTrack(t); }}
+                        />
                       </motion.div>
                     );
 
                   }
+
                   if (entry.type === 'artist') {
                     const a = entry.item as Artist;
                     return (
@@ -355,7 +432,20 @@ export default function Search() {
         />
       )}
       </div>
+      <AddToPlaylistDialog
+        isOpen={!!playlistTrack}
+        onClose={() => setPlaylistTrack(null)}
+        track={{
+          title: playlistTrack?.title || "",
+          artist: playlistTrack?.artist || "",
+          album: playlistTrack?.album,
+          artwork: playlistTrack?.artwork,
+          duration: playlistTrack?.duration,
+          preview: playlistTrack?.preview,
+        }}
+      />
     </div>
+
   );
 }
 
@@ -489,6 +579,7 @@ function SearchEmptyState({
         </div>
       )}
     </div>
+
   );
 }
 
