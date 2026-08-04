@@ -51,10 +51,11 @@ export function HomeSectionRow({ section, onPlay }: Props) {
         artwork: x.thumbnail, duration: x.duration || 0, youtubeId: x.videoId,
       } as Track);
       const source = vids.map(asTrack);
-      // Two videos stacked per column, six columns across, scrolls right.
+      // Four videos stacked per column so the row matches the song lists.
       const columns: typeof vids[] = [];
-      for (let i = 0; i < vids.length; i += 2) columns.push(vids.slice(i, i + 2));
+      for (let i = 0; i < vids.length; i += 4) columns.push(vids.slice(i, i + 4));
       return columns.map((col, ci) => (
+
         <VideoListColumn key={`vcol-${ci}`}>
           {col.map((v) => (
             <MusicVideoListItem key={v.id} video={v} onClick={() => onPlay(asTrack(v), source)} />
