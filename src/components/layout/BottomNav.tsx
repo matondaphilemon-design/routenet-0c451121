@@ -6,7 +6,6 @@ import { cn } from "@/lib/utils";
 const navItems = [
   { path: "/home", icon: Home, label: "Home" },
   { path: "/search", icon: Search, label: "Search" },
-  { path: "/ai-dj", icon: Mic, label: "AI Radio" },
   { path: "/library", icon: Library, label: "Library" },
   { path: "/profile", icon: User, label: "Profile" },
 ];
