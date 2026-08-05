@@ -212,6 +212,12 @@ export default function AlbumDetail() {
                 <span className={cn("w-5 shrink-0 text-center text-[13px] font-semibold tabular-nums", active ? "text-primary" : "text-muted-foreground")}>
                   {active && isPlaying ? "▶" : i + 1}
                 </span>
+                <img
+                  src={track.artwork || album.cover_medium || ""}
+                  alt=""
+                  loading="lazy"
+                  className="h-11 w-11 shrink-0 rounded-md object-cover ring-1 ring-border/40"
+                />
                 <span className="min-w-0 flex-1">
                   <span className={cn("block truncate text-[15px] font-semibold", active ? "text-primary" : "text-foreground")}>{track.title}</span>
                   <span className="mt-0.5 flex items-center gap-1.5">
