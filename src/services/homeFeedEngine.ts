@@ -506,15 +506,96 @@ function globalSections(input: FeedInput): SectionDescriptor[] {
   ]) as SectionDescriptor[];
 }
 
+/* ------------------------------------------------------------------ */
+/* Artist-accurate loaders (no generic search noise)                   */
+/* ------------------------------------------------------------------ */
+
+function norm(v?: string) { return (v || "").toLowerCase().replace(/[^a-z0-9]+/g, ""); }
+
+/** True when a row genuinely belongs to (or features) the seed artist. */
+function isByArtist(row: any, name: string): boolean {
+  const seed = norm(name);
+  if (!seed) return false;
+  const candidates = [row?.artist?.name, row?.artist, row?.title, row?.album?.title];
+  return candidates.some((c) => {
+    const n = norm(typeof c === "string" ? c : c?.name);
+    return !!n && (n.includes(seed) || seed.includes(n));
+  });
+}
+
+/** The artist's own catalogue — top tracks, strictly filtered to them. */
+const artistOwnSongs = (name: string, limit = 15) => async (): Promise<SectionResult> => {
+  const id = await resolveArtistId(name);
+  if (!id) return {};
+  const rows = (await getArtistTopTracks(id, limit + 10)).filter((r: any) => isByArtist(r, name));
+  const list = dedupeTracks(rows.map(deezerTrack));
+  if (!list.length) return {};
+  return { songs: await withDeezer(list.slice(0, limit)) };
+};
+
+/** Songs that feature the artist — collaborations only. */
+const artistFeatures = (name: string, limit = 15) => async (): Promise<SectionResult> => {
+  const id = await resolveArtistId(name);
+  if (!id) return {};
+  const [tops, radio] = await Promise.all([getArtistTopTracks(id, 40), getArtistRadio(id, 40)]);
+  const rows = [...tops, ...radio].filter((r: any) => {
+    const title = String(r?.title || "");
+    return /feat\.?|ft\.?|with /i.test(title) || (isByArtist(r, name) && /,|&/.test(title));
+  });
+  const list = dedupeTracks(rows.map(deezerTrack));
+  if (!list.length) return {};
+  return { songs: await withDeezer(list.slice(0, limit)) };
+};
+
+/** The artist's radio — their sound, never a generic chart. */
+const artistRadioSongs = (name: string, limit = 20) => async (): Promise<SectionResult> => {
+  const id = await resolveArtistId(name);
+  if (!id) return {};
+  const rows = await getArtistRadio(id, limit + 10);
+  const list = dedupeTracks(rows.map(deezerTrack));
+  if (!list.length) return {};
+  return { songs: await withDeezer(list.slice(0, limit)) };
+};
+
+/** Songs by artists actually related to the seed (Deezer related graph). */
+const artistInspiredSongs = (name: string, limit = 20) => async (): Promise<SectionResult> => {
+  const id = await resolveArtistId(name);
+  if (!id) return {};
+  const related = await getArtistRelated(id, 6);
+  if (!related.length) return {};
+  const tops = await Promise.all(related.slice(0, 5).map((a: any) => getArtistTopTracks(a.id, 5)));
+  const list = dedupeTracks(roundRobin(tops, limit + 6).map(deezerTrack), true);
+  if (!list.length) return {};
+  return { songs: await withDeezer(list.slice(0, limit)) };
+};
+
+/** Real albums from the artist's Deezer discography. */
+const artistAlbums = (name: string, limit = 15, newestOnly = false) =>
+  async (): Promise<SectionResult> => {
+    const rows = (await searchAlbums(name, limit + 10)).filter((a: any) => isByArtist(a, name));
+    const sorted = newestOnly
+      ? rows.slice().sort((a: any, b: any) => String(b?.release_date || "").localeCompare(String(a?.release_date || "")))
+      : rows;
+    if (!sorted.length) return {};
+    return { albums: sorted.slice(0, limit).map(transformAlbum) };
+  };
+
+/** Artists related to the seed, from Deezer's graph rather than a text search. */
+const artistRelatedList = (name: string, limit = 15) => async (): Promise<SectionResult> => {
+  const id = await resolveArtistId(name);
+  const rows = id ? await getArtistRelated(id, limit) : [];
+  if (!rows.length) return {};
+  return { artists: rows.map(transformArtist) };
+};
+
 const ARTIST_SECTION_TEMPLATES: Array<(name: string) => SectionDescriptor> = [
-  (name) => ({ id: `art:${name}:best`, title: `Best of ${name}`, kind: "songs", load: songs(`${name} best songs`, 15) }),
-  (name) => ({ id: `art:${name}:essentials`, title: `${name} Essentials`, kind: "songs", load: songs(`${name} greatest hits`, 15) }),
-  (name) => ({ id: `art:${name}:latest`, title: `${name}'s Latest Releases`, kind: "albums", load: albums(`${name} ${YEAR}`, 12) }),
-  (name) => ({ id: `art:${name}:radio`, title: `${name} Radio`, kind: "songs", load: songs(`${name} radio mix`, 20) }),
-  (name) => ({ id: `art:${name}:similar`, title: `Similar to ${name}`, kind: "artists", load: artists(`artists like ${name}`, 15) }),
-  (name) => ({ id: `art:${name}:inspired`, title: `Inspired by ${name}`, kind: "songs", load: songs(`music like ${name}`, 20) }),
-  (name) => ({ id: `art:${name}:collabs`, title: `${name} Collaborations`, kind: "songs", load: songs(`${name} feat`, 20) }),
-  (name) => ({ id: `art:${name}:albums`, title: `${name} Albums`, kind: "albums", load: albums(name, 15) }),
+  (name) => ({ id: `art:${name}:best`, title: `Best of ${name}`, kind: "songs", load: artistOwnSongs(name, 15) }),
+  (name) => ({ id: `art:${name}:latest`, title: `${name}'s Latest Releases`, kind: "albums", load: artistAlbums(name, 12, true) }),
+  (name) => ({ id: `art:${name}:radio`, title: `${name} Radio`, kind: "songs", load: artistRadioSongs(name, 20) }),
+  (name) => ({ id: `art:${name}:similar`, title: `Similar to ${name}`, kind: "artists", load: artistRelatedList(name, 15) }),
+  (name) => ({ id: `art:${name}:inspired`, title: `Inspired by ${name}`, kind: "songs", load: artistInspiredSongs(name, 20) }),
+  (name) => ({ id: `art:${name}:collabs`, title: `${name} Collaborations`, kind: "songs", load: artistFeatures(name, 15) }),
+  (name) => ({ id: `art:${name}:albums`, title: `${name} Albums`, kind: "albums", load: artistAlbums(name, 15) }),
   (name) => ({ id: `art:${name}:videos`, title: `${name} Music Videos`, kind: "videos", load: videos(`${name} official music video`, 12) }),
 ];
 
