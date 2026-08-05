@@ -1,4 +1,5 @@
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import { resolveStream } from "../_shared/ytresolve.ts";
 
 /**
  * Public media download proxy.
@@ -7,16 +8,18 @@ import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
  * (or the app's download service) can save a real file. Bypasses CORS.
  */
 
-const INSTANCES = [
-  "https://pipedapi.kavin.rocks",
-  "https://pipedapi.adminforge.de",
-  "https://api.piped.private.coffee",
-  "https://pipedapi.reallyaweso.me",
-  "https://pipedapi.r4fo.com",
-];
-
 const ALLOWED_HOSTS = [
   "googlevideo.com",
+  "youtube.com",
+  "ytimg.com",
+  "nadeko.net",
+  "nerdvpn.de",
+  "yewtu.be",
+  "f5.si",
+  "ggtyler.dev",
+  "leptons.xyz",
+  "drgns.space",
+  "piped.yt",
   "pipedapi.kavin.rocks",
   "pipedapi.adminforge.de",
   "api.piped.private.coffee",
@@ -43,45 +46,8 @@ function assertAllowedTarget(target: string) {
   return parsed;
 }
 
-async function pipedStreams(videoId: string) {
-  let lastError: unknown;
-  for (const base of INSTANCES) {
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 8000);
-      const res = await fetch(`${base}/streams/${encodeURIComponent(videoId)}`, {
-        headers: { Accept: "application/json" },
-        signal: controller.signal,
-      });
-      clearTimeout(timer);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      if (data?.audioStreams || data?.videoStreams) return data;
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  throw lastError instanceof Error ? lastError : new Error("no streams found");
-}
 
-function pickAudio(data: any): string {
-  const list = (Array.isArray(data?.audioStreams) ? data.audioStreams : [])
-    .filter((s: any) => s?.url)
-    .sort((a: any, b: any) => (b.bitrate ?? 0) - (a.bitrate ?? 0));
-  const mp4 = list.find((s: any) => String(s.mimeType || "").includes("mp4"));
-  const chosen = mp4 || list[0];
-  if (!chosen?.url) throw new Error("no audio stream found");
-  return chosen.url as string;
-}
 
-function pickMuxedMp4(data: any): string {
-  const muxed = (Array.isArray(data?.videoStreams) ? data.videoStreams : [])
-    .filter((s: any) => s?.url && s.videoOnly === false)
-    .filter((s: any) => !s.mimeType || String(s.mimeType).includes("mp4"))
-    .sort((a: any, b: any) => (b.height ?? 0) - (a.height ?? 0));
-  if (!muxed[0]?.url) throw new Error("no downloadable MP4 stream found");
-  return muxed[0].url as string;
-}
 
 async function proxyMedia(request: Request, target: string, name: string) {
   let parsed: URL;
@@ -146,8 +112,9 @@ Deno.serve(async (req) => {
 
     if (!target) {
       if (!videoId) return new Response("missing target", { status: 400, headers: corsHeaders });
-      const data = await pipedStreams(videoId);
-      target = audioOnly ? pickAudio(data) : pickMuxedMp4(data);
+      const resolved = await resolveStream(videoId, audioOnly);
+      console.log(`[public-download] ${videoId} resolved via ${resolved.source} (${resolved.mimeType})`);
+      target = resolved.url;
     }
 
     return await proxyMedia(req, target, name);
