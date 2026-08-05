@@ -152,6 +152,17 @@ function SongActionsMenu({ track, open, onToggle, onClose, onAddToPlaylist }: {
               >
                 <ListPlus className="h-3.5 w-3.5 text-muted-foreground" />Add to queue
               </button>
+              <button
+                onClick={async () => {
+                  onClose();
+                  blockArtist(track.artist);
+                  const { toast } = await import("sonner");
+                  toast.success(`Hiding ${track.artist} from search`);
+                }}
+                className="flex w-full items-center gap-3 px-3 py-2.5 text-xs font-medium text-foreground hover:bg-muted/20"
+              >
+                <X className="h-3.5 w-3.5 text-muted-foreground" />Hide this artist
+              </button>
             </motion.div>
           </>
         )}
@@ -214,14 +225,6 @@ export default function Search() {
     if (debouncedQuery.length >= 2 && searchResults) { addToSearchHistory(debouncedQuery); setSearchHistory(getSearchHistory()); }
   }, [debouncedQuery, searchResults]);
 
-  // Persist finished searches (results + metadata) for the history cache.
-  useEffect(() => {
-    if (debouncedQuery.length < 2) return;
-    if (!liveTracks.length && !liveArtists.length && !liveAlbums.length) return;
-    writeSearchCache(debouncedQuery, { tracks: liveTracks, artists: liveArtists, albums: liveAlbums });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery, liveTracks.length, liveArtists.length, liveAlbums.length]);
-
   const hasQuery = query.length > 0;
   const hasApiResults = searchResults && (searchResults.artists.length > 0 || searchResults.tracks.length > 0 || searchResults.albums.length > 0);
 
@@ -247,6 +250,15 @@ export default function Search() {
         .sort((a, b) => rankedScore(debouncedQuery, b, taste) - rankedScore(debouncedQuery, a, taste))
     : [];
   const filteredAlbums: Album[] = liveAlbums.length ? liveAlbums : (cached?.albums || []);
+
+  // Persist finished searches (results + metadata) for the history cache.
+  useEffect(() => {
+    if (debouncedQuery.length < 2) return;
+    if (!liveTracks.length && !liveArtists.length && !liveAlbums.length) return;
+    writeSearchCache(debouncedQuery, { tracks: liveTracks, artists: liveArtists, albums: liveAlbums });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedQuery, liveTracks.length, liveArtists.length, liveAlbums.length]);
+
 
   // Also search playlists
   const matchingPlaylists = (playlists || []).filter(p => p.name.toLowerCase().includes(debouncedQuery.toLowerCase()));
