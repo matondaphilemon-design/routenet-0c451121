@@ -1,4 +1,4 @@
-import { Home, Search, Library, Mic, User } from "lucide-react";
+import { Home, Search, Library, User } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
