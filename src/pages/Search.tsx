@@ -17,6 +17,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getUserPlaylists } from "@/services/playlistService";
 import { getCombinedScore } from "@/lib/balancedPlaylist";
 import { supabase } from "@/integrations/supabase/client";
+import { readSearchCache, writeSearchCache, isBlockedArtist, getBlockedArtists, blockArtist } from "@/services/searchCache";
 
 const SEARCH_HISTORY_KEY = 'echotunes_search_history';
 const MAX_HISTORY = 10;
@@ -171,6 +172,9 @@ export default function Search() {
   const [recognition, setRecognition] = useState<any>(null);
   const [menuTrackId, setMenuTrackId] = useState<string | null>(null);
   const [playlistTrack, setPlaylistTrack] = useState<Track | null>(null);
+  const blocked = useMemo(() => getBlockedArtists(), []);
+  // Previous searches keep their results + metadata so history is instant.
+  const cached = useMemo(() => readSearchCache(debouncedQuery), [debouncedQuery]);
 
 
   const { data: playlists } = useQuery({ queryKey: ["user-playlists"], queryFn: getUserPlaylists, staleTime: 30_000 });
@@ -210,25 +214,39 @@ export default function Search() {
     if (debouncedQuery.length >= 2 && searchResults) { addToSearchHistory(debouncedQuery); setSearchHistory(getSearchHistory()); }
   }, [debouncedQuery, searchResults]);
 
+  // Persist finished searches (results + metadata) for the history cache.
+  useEffect(() => {
+    if (debouncedQuery.length < 2) return;
+    if (!liveTracks.length && !liveArtists.length && !liveAlbums.length) return;
+    writeSearchCache(debouncedQuery, { tracks: liveTracks, artists: liveArtists, albums: liveAlbums });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedQuery, liveTracks.length, liveArtists.length, liveAlbums.length]);
+
   const hasQuery = query.length > 0;
   const hasApiResults = searchResults && (searchResults.artists.length > 0 || searchResults.tracks.length > 0 || searchResults.albums.length > 0);
 
   // Songs come from Piped only (always playable). Deezer stays behind the
   // scenes as the metadata layer — its own rows are never listed.
-  const filteredTracks: Track[] = ((unifiedTracks || []) as Track[])
+  const liveTracks: Track[] = ((unifiedTracks || []) as Track[])
+    .filter((t) => !isBlockedArtist(t.artist, blocked))
     .slice()
     .sort((a, b) => rankedScore(debouncedQuery, b, taste) - rankedScore(debouncedQuery, a, taste));
+  const filteredTracks: Track[] = liveTracks.length ? liveTracks : (cached?.tracks || []);
 
 
-  const filteredArtists = hasApiResults
+  const liveArtists: Artist[] = hasApiResults
     ? searchResults.artists.map((a): Artist => ({ id: a.id, name: a.name, avatar: a.avatar || '', monthlyListeners: a.monthlyListeners || 0 }))
+        .filter((a) => !isBlockedArtist(a.name, blocked))
         .sort((a, b) => rankedScore(debouncedQuery, { name: b.name, nb_fan: (b as any).monthlyListeners }, taste) - rankedScore(debouncedQuery, { name: a.name, nb_fan: (a as any).monthlyListeners }, taste))
     : [];
+  const filteredArtists: Artist[] = liveArtists.length ? liveArtists : (cached?.artists || []);
 
-  const filteredAlbums: Album[] = hasApiResults
+  const liveAlbums: Album[] = hasApiResults
     ? searchResults.albums.map((a) => ({ id: a.id, title: a.name, artist: a.artist, artwork: a.artwork || '', trackCount: a.trackCount || 0 }))
+        .filter((a) => !isBlockedArtist(a.artist, blocked))
         .sort((a, b) => rankedScore(debouncedQuery, b, taste) - rankedScore(debouncedQuery, a, taste))
     : [];
+  const filteredAlbums: Album[] = liveAlbums.length ? liveAlbums : (cached?.albums || []);
 
   // Also search playlists
   const matchingPlaylists = (playlists || []).filter(p => p.name.toLowerCase().includes(debouncedQuery.toLowerCase()));
