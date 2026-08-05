@@ -49,10 +49,12 @@ function assertAllowedTarget(target: string) {
 
 
 
-async function proxyMedia(request: Request, target: string, name: string) {
+async function proxyMedia(request: Request, target: string, name: string, trusted = false) {
   let parsed: URL;
   try {
-    parsed = assertAllowedTarget(target);
+    // URLs we resolved server-side are trusted; only client-supplied ones are
+    // restricted to the allowlist (SSRF guard).
+    parsed = trusted ? new URL(target) : assertAllowedTarget(target);
   } catch (error) {
     return new Response((error as Error)?.message || "bad url", { status: 400, headers: corsHeaders });
   }
@@ -92,6 +94,7 @@ Deno.serve(async (req) => {
     let target = "";
     let name = "media";
     let audioOnly = false;
+    let trusted = false;
 
     if (req.method === "POST") {
       const body = await req.json().catch(() => null) as
@@ -115,9 +118,10 @@ Deno.serve(async (req) => {
       const resolved = await resolveStream(videoId, audioOnly);
       console.log(`[public-download] ${videoId} resolved via ${resolved.source} (${resolved.mimeType})`);
       target = resolved.url;
+      trusted = true;
     }
 
-    return await proxyMedia(req, target, name);
+    return await proxyMedia(req, target, name, trusted);
   } catch (error) {
     return new Response(JSON.stringify({ error: (error as Error)?.message || "download failed" }), {
       status: 502,
