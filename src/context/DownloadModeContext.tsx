@@ -9,6 +9,8 @@ export type DownloadStatus = "idle" | "downloading" | "done" | "failed";
 interface DownloadEntry {
   status: DownloadStatus;
   percent: number;
+  received?: number;
+  total?: number;
 }
 
 interface DownloadModeContextValue {
@@ -60,8 +62,11 @@ export function DownloadModeProvider({ children }: { children: ReactNode }) {
     }
     setStatuses(prev => ({ ...prev, [track.id]: { status: "downloading", percent: 0 } }));
     try {
-      const ok = await downloadTrack(track, (percent) => {
-        setStatuses(prev => ({ ...prev, [track.id]: { status: "downloading", percent } }));
+      const ok = await downloadTrack(track, undefined, undefined, (p) => {
+        setStatuses(prev => ({
+          ...prev,
+          [track.id]: { status: "downloading", percent: p.percent, received: p.received, total: p.total },
+        }));
       });
       if (ok) {
         setStatuses(prev => ({ ...prev, [track.id]: { status: "done", percent: 100 } }));

@@ -7,7 +7,7 @@ import { getPreloadedYouTubeId } from "@/hooks/usePreloadYouTube";
 import { isTrackCached } from "@/hooks/useCachedTracks";
 import { useNavigate } from "react-router-dom";
 import { AddToPlaylistDialog } from "@/components/AddToPlaylistDialog";
-import { DownloadProgressCircle } from "@/components/DownloadProgressCircle";
+import { CardDownloadBar, CardDownloadBadge } from "@/components/download/CardDownload";
 import { formatStreams } from "@/utils/formatStreams";
 import { useDownloadMode } from "@/context/DownloadModeContext";
 import { buildRadioQueue } from "@/services/radioEngine";
@@ -76,7 +76,7 @@ export function TrackCard({ track, index, showIndex, contextTracks, download, hi
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: (index || 0) * 0.05 }}
-        className="group flex items-center gap-3 rounded-lg p-2 transition-colors hover:bg-white/5 cursor-pointer"
+        className="group relative flex items-center gap-3 rounded-lg p-2 pb-2.5 transition-colors hover:bg-white/5 cursor-pointer"
         onClick={handlePlay}
       >
         {showIndex && (
@@ -113,11 +113,9 @@ export function TrackCard({ track, index, showIndex, contextTracks, download, hi
                 className="flex-shrink-0 mt-0.5"
                 aria-label="Download"
               >
-                <DownloadProgressCircle
+                <CardDownloadBadge
                   status={download?.status || statusOf(track.id).status}
                   percent={download?.percent ?? statusOf(track.id).percent}
-                  size={20}
-                  onClick={() => {}}
                 />
               </button>
             )}
@@ -205,6 +203,12 @@ export function TrackCard({ track, index, showIndex, contextTracks, download, hi
             )}
           </AnimatePresence>
         </div>
+        <CardDownloadBar
+          status={download?.status || statusOf(track.id).status}
+          percent={download?.percent ?? statusOf(track.id).percent}
+          received={statusOf(track.id).received}
+          total={statusOf(track.id).total}
+        />
       </motion.div>
 
       <AddToPlaylistDialog

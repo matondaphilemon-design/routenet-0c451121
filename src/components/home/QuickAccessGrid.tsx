@@ -9,7 +9,7 @@ import { useListeningHistory } from "@/hooks/useListeningHistory";
 export function QuickAccessGrid() {
   const { playTrack } = usePlayer();
   const { history } = useListeningHistory();
-  const recentSongs = history.slice(0, 6);
+  const recentSongs = history.slice(0, 4);
 
   const hasAnything = recentSongs.length > 0;
   if (!hasAnything) return null;

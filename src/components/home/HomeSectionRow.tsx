@@ -42,6 +42,11 @@ export function HomeSectionRow({ section, onPlay }: Props) {
 
   const isArtistKind = section.kind === "artists";
 
+  // A section that resolved with nothing relevant is dropped entirely instead
+  // of padding itself with generic data.
+  if (state === "empty") return null;
+
+
   const items = (() => {
     if (!data) return null;
     if (section.kind === "videos" && data.videos?.length) {

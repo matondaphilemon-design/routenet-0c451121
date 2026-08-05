@@ -17,7 +17,7 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { downloadTrack } from "@/services/downloadService";
-import { DownloadProgressCircle } from "@/components/DownloadProgressCircle";
+import { CardDownloadBar, CardDownloadBadge } from "@/components/download/CardDownload";
 import { toTitleCase } from "@/utils/toTitleCase";
 
 export default function UserPlaylistDetail() {
@@ -192,7 +192,7 @@ export default function UserPlaylistDetail() {
           const dl = downloadProgress[track.id];
           return (
             <motion.div key={track.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: index * 0.03 }}
-              className={`group flex cursor-pointer items-center gap-3 rounded-lg p-2.5 hover:bg-muted/30 ${isCurrentTrack ? "bg-primary/10" : ""}`}>
+              className={`group relative flex cursor-pointer items-center gap-3 rounded-lg p-2.5 hover:bg-muted/30 ${isCurrentTrack ? "bg-primary/10" : ""}`}>
               <div className="flex-1 flex items-center gap-3" onClick={() => handlePlayTrack(index)}>
                 <span className="w-5 text-center text-xs text-muted-foreground">{index + 1}</span>
                 {track.track_artwork ? <img src={track.track_artwork} alt="" className="h-10 w-10 rounded object-cover" /> : <div className="flex h-10 w-10 items-center justify-center rounded bg-muted"><Music2 className="h-4 w-4 text-muted-foreground" /></div>}
@@ -202,8 +202,9 @@ export default function UserPlaylistDetail() {
                 </div>
                 <span className="text-xs text-muted-foreground">{track.track_duration ? formatDuration(track.track_duration) : ""}</span>
               </div>
-              <DownloadProgressCircle status={dl?.status || "idle"} percent={dl?.percent || 0} size={22}
-                onClick={() => {
+              <button aria-label="Download song" className="shrink-0"
+                onClick={(e) => {
+                  e.stopPropagation();
                   if (!dl) {
                     const pt: Track = { id: track.id, title: track.track_title, artist: track.track_artist, album: track.track_album || "", artwork: track.track_artwork || "", duration: track.track_duration || 0 };
                     setDownloadProgress(prev => ({ ...prev, [track.id]: { status: "downloading", percent: 0 } }));
@@ -211,7 +212,10 @@ export default function UserPlaylistDetail() {
                       { groupKey: `playlist-${id}`, groupName: playlist?.name || "", groupType: "playlist" }
                     ).then(ok => { setDownloadProgress(prev => ({ ...prev, [track.id]: { status: ok ? "done" : "failed", percent: ok ? 100 : 0 } })); });
                   }
-                }} />
+                }}>
+                <CardDownloadBadge status={dl?.status || "idle"} percent={dl?.percent || 0} />
+              </button>
+              <CardDownloadBar status={dl?.status || "idle"} percent={dl?.percent || 0} />
               {isOwner && (
                 <button onClick={(e) => { e.stopPropagation(); handleRemoveTrack(track.id); }}
                   className="rounded-full p-1 text-muted-foreground opacity-0 hover:text-destructive group-hover:opacity-100">

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronDown, Download, Heart, Loader2, ListMusic, Mic, MoreHorizontal, Pause, Play, Plus, Repeat, Repeat1, Share2, Shuffle, SkipBack, SkipForward } from "lucide-react";
+import { ArrowDownCircle, ChevronDown, FileText, Heart, Loader2, ListMusic, MonitorPlay, MoreHorizontal, Pause, Play, Plus, Repeat, Repeat1, Share2, Shuffle, SkipBack, SkipForward } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { AddToPlaylistDialog } from "@/components/AddToPlaylistDialog";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { usePlayer } from "@/context/PlayerContext";
 import { cn } from "@/lib/utils";
+import { SyncedVideoPanel } from "@/components/nowplaying/SyncedVideoPanel";
 import { lookupMeta, peekMeta, type DeezerMeta } from "@/services/metadataEnrichment";
 
 import { toTitleCase } from "@/utils/toTitleCase";
@@ -36,6 +37,7 @@ export default function NowPlaying() {
   const [showPlaylistDialog, setShowPlaylistDialog] = useState(false);
   const [downloadStatus, setDownloadStatus] = useState<"idle" | "downloading" | "done" | "failed">("idle");
   const [downloadPercent, setDownloadPercent] = useState(0);
+  const [showVideo, setShowVideo] = useState(false);
   /** Deezer metadata for the current song (title / artist / album / hi-res art). */
   const [meta, setMeta] = useState<DeezerMeta | null>(null);
 
@@ -79,6 +81,10 @@ export default function NowPlaying() {
   }, [currentTrack?.artist, currentTrack?.title]);
 
   const isResolving = useMemo(() => !!currentTrack && !currentTrack.youtubeId && !getCachedYouTubeId(currentTrack.title, currentTrack.artist), [currentTrack]);
+  const videoId = useMemo(
+    () => currentTrack?.youtubeId || getCachedYouTubeId(currentTrack?.title || "", currentTrack?.artist || "") || "",
+    [currentTrack],
+  );
   const actualDuration = duration || currentTrack?.duration || 0;
   const currentTime = Math.floor(localProgress * actualDuration);
 
@@ -254,15 +260,16 @@ export default function NowPlaying() {
         {/* Secondary actions — compact translucent pill bar */}
         <nav aria-label="Track actions" className="mx-auto flex w-full max-w-sm items-center justify-around rounded-full border border-border/40 bg-foreground/[0.06] px-1.5 py-1 backdrop-blur-xl">
           {[
-            { icon: Mic, label: "Lyrics", action: () => navigate("/lyrics"), active: false },
+            { icon: FileText, label: "Lyrics", action: () => navigate("/lyrics"), active: false },
             { icon: Plus, label: "Save to playlist", action: () => setShowPlaylistDialog(true), active: false },
             {
-              icon: downloadStatus === "downloading" ? Loader2 : Download,
+              icon: downloadStatus === "downloading" ? Loader2 : ArrowDownCircle,
               label: downloadStatus === "done" ? "Downloaded" : downloadStatus === "downloading" ? `Downloading ${downloadPercent}%` : "Download",
               action: handleDownload,
               active: downloadStatus === "done",
               spin: downloadStatus === "downloading",
             },
+            { icon: MonitorPlay, label: "Watch video", action: () => setShowVideo((v) => !v), active: showVideo },
             { icon: ListMusic, label: "Open queue", action: () => navigate("/queue"), active: false },
             { icon: Share2, label: "Share", action: () => setShowShareSheet(true), active: false },
           ].map(({ icon: Icon, label, action, active, spin }: any) => (
@@ -301,7 +308,7 @@ export default function NowPlaying() {
                 {[
                   { icon: Plus, label: "Add to Playlist", action: () => setShowPlaylistDialog(true) },
                   { icon: ListMusic, label: "Open Queue", action: () => navigate("/queue") },
-                  { icon: Download, label: downloadStatus === "done" ? "Downloaded" : "Download", action: handleDownload },
+                  { icon: ArrowDownCircle, label: downloadStatus === "done" ? "Downloaded" : "Download", action: handleDownload },
                   { icon: Share2, label: "Share", action: () => setShowShareSheet(true) },
                 ].map(({ icon: Icon, label, action }) => (
                   <Button key={label} variant="ghost" onClick={() => { action(); setShowMore(false); }} className="justify-start rounded-xl px-3 text-sm font-bold">
@@ -311,6 +318,17 @@ export default function NowPlaying() {
               </div>
             </motion.div>
           </>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showVideo && videoId && (
+          <SyncedVideoPanel
+            videoId={videoId}
+            title={display.title}
+            startSeconds={currentTime}
+            onClose={() => setShowVideo(false)}
+          />
         )}
       </AnimatePresence>
 
