@@ -9,8 +9,10 @@
  * Exposes `getPoToken()` which returns `{ poToken, visitorData }`, cached in
  * memory + localStorage with a TTL and refreshed automatically on expiry.
  */
-import { BotGuardClient, getChallenge, WebPoMinter } from "bgutils-js/botguard";
+import { BotGuardClient, getChallenge } from "bgutils-js/botguard";
+import { WebPoMinter } from "bgutils-js/webpo";
 import { buildURL, getHeaders } from "bgutils-js/utils";
+
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "@/integrations/supabase/config";
 
 const REQUEST_KEY = "O43z0dpjhgX20SCx4KAo";
