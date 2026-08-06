@@ -121,6 +121,9 @@ export function GlobalAudioPlayer() {
   const nativeEndTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const nativeCurrentTimeRef = useRef<number>(0);
   const nativeAssetIdRef = useRef<string | null>(null);
+  // Object URL for the currently playing offline download, revoked on swap.
+  const localBlobUrlRef = useRef<string | null>(null);
+
   // While crossfading, the outgoing audio is moved here so the new track
   // can be created in audioRef without killing the tail of the previous song.
   const prevAudioRef = useRef<HTMLAudioElement | null>(null);
