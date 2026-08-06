@@ -309,13 +309,28 @@ export function GlobalAudioPlayer() {
     }, CROSSFADE_FADE_INTERVAL_MS);
   }, [stopPrevAudio]);
 
-  // Try Piped audio as fallback
+  // Offline-first: a downloaded blob, otherwise Piped audio
   const tryPlayWithPiped = useCallback(async (videoId: string, track: Track) => {
-    if (shouldUseIframe(videoId)) return false;
+    let result: { url: string } | null = null;
+
+    // Downloaded tracks always play from local storage — works fully offline.
+    try {
+      if (isDownloadedSync(track.id)) {
+        const saved = await getSong(track.id);
+        if (saved?.blob) {
+          if (localBlobUrlRef.current) URL.revokeObjectURL(localBlobUrlRef.current);
+          localBlobUrlRef.current = URL.createObjectURL(saved.blob);
+          result = { url: localBlobUrlRef.current };
+        }
+      }
+    } catch { /* fall through to network */ }
+
+    if (!result && shouldUseIframe(videoId)) return false;
 
     try {
-      const result = await getPipedAudioUrl(videoId, 6000);
+      if (!result) result = await getPipedAudioUrl(videoId, 6000);
       if (!result) return false;
+
 
       if (isNativeAudioPluginAvailable()) {
         stopPipedAudio();
