@@ -26,11 +26,13 @@ const INNERTUBE_ENDPOINT =
   "https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 
 const INNERTUBE_CLIENTS = [
-  { name: "IOS", version: "20.10.4", userAgent: "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_0 like Mac OS X)" },
-  { name: "ANDROID", version: "19.44.38", userAgent: "com.google.android.youtube/19.44.38 (Linux; U; Android 14)" },
+  { name: "IOS", version: "20.10.4", userAgent: "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_0 like Mac OS X)", extra: { deviceMake: "Apple", deviceModel: "iPhone16,2", osName: "iOS", osVersion: "18.0.0.22A3354" } },
+  { name: "IOS_MUSIC", version: "7.31.2", userAgent: "com.google.ios.youtubemusic/7.31.2 (iPhone16,2; U; CPU iOS 18_0 like Mac OS X)", extra: { deviceMake: "Apple", deviceModel: "iPhone16,2", osName: "iOS", osVersion: "18.0.0.22A3354" } },
+  { name: "ANDROID", version: "19.44.38", userAgent: "com.google.android.youtube/19.44.38 (Linux; U; Android 14) gzip", extra: { androidSdkVersion: 34, osName: "Android", osVersion: "14" } },
   { name: "WEB_EMBEDDED_PLAYER", version: "1.20250306.01.00", userAgent: "Mozilla/5.0", thirdParty: { embedUrl: "https://www.youtube.com" } },
   { name: "TVHTML5_SIMPLY_EMBEDDED_PLAYER", version: "2.0", userAgent: "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version", thirdParty: { embedUrl: "https://www.youtube.com" } },
 ] as const;
+
 
 export interface ResolvedStream {
   url: string;
@@ -98,26 +100,87 @@ function urlFromCipher(cipher?: string): string | undefined {
   return url || undefined;
 }
 
+/**
+ * YouTube blocks datacenter IPs with "Sign in to confirm you're not a bot"
+ * unless the request carries a visitor identity (and, ideally, cookies).
+ * A visitorData token is free to mint and is enough for most videos.
+ */
+let visitorDataCache: { value: string; at: number } | null = null;
+
+async function getVisitorData(): Promise<string | null> {
+  if (visitorDataCache && Date.now() - visitorDataCache.at < 30 * 60 * 1000) {
+    return visitorDataCache.value;
+  }
+  try {
+    const res = await fetch("https://www.youtube.com/sw.js_data", {
+      headers: { "User-Agent": "Mozilla/5.0", ...(ytCookie() ? { cookie: ytCookie()! } : {}) },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const text = (await res.text()).replace(/^\)\]\}'/, "");
+    const match = text.match(/"(Cgt[A-Za-z0-9_\-%]{10,})"/);
+    if (!match) return null;
+    visitorDataCache = { value: match[1], at: Date.now() };
+    return match[1];
+  } catch {
+    return null;
+  }
+}
+
+function ytCookie(): string | null {
+  try {
+    return Deno.env.get("YT_COOKIE") || null;
+  } catch {
+    return null;
+  }
+}
+
 async function innertubeResolve(videoId: string, audio: boolean): Promise<ResolvedStream | null> {
+  const visitorData = await getVisitorData();
+  const cookie = ytCookie();
   for (const client of INNERTUBE_CLIENTS) {
     try {
       const res = await fetch(INNERTUBE_ENDPOINT, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "User-Agent": client.userAgent },
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent": client.userAgent,
+          ...(visitorData ? { "X-Goog-Visitor-Id": visitorData } : {}),
+          ...(cookie ? { cookie } : {}),
+        },
+
         body: JSON.stringify({
           videoId,
           contentCheckOk: true,
           racyCheckOk: true,
           context: {
-            client: { clientName: client.name, clientVersion: client.version, hl: "en", gl: "US" },
+            client: {
+              clientName: client.name,
+              clientVersion: client.version,
+              hl: "en",
+              gl: "US",
+              ...(visitorData ? { visitorData } : {}),
+              ...(("extra" in client) ? (client as any).extra : {}),
+
+            },
             ...(("thirdParty" in client) ? { thirdParty: (client as any).thirdParty } : {}),
           },
         }),
         signal: AbortSignal.timeout(12000),
       });
-      if (!res.ok) continue;
+      if (!res.ok) {
+        console.log(`[ytresolve] innertube ${client.name} HTTP ${res.status}`);
+        continue;
+      }
       const data = await res.json();
-      if (data?.playabilityStatus?.status && data.playabilityStatus.status !== "OK") continue;
+      const hasFormats =
+        Array.isArray(data?.streamingData?.adaptiveFormats) || Array.isArray(data?.streamingData?.formats);
+      console.log(
+        `[ytresolve] innertube ${client.name} status=${data?.playabilityStatus?.status} formats=${hasFormats} reason=${data?.playabilityStatus?.reason ?? ""}`,
+      );
+      if (!hasFormats) continue;
+
+
 
       const adaptive = Array.isArray(data?.streamingData?.adaptiveFormats) ? data.streamingData.adaptiveFormats : [];
       const regular = Array.isArray(data?.streamingData?.formats) ? data.streamingData.formats : [];
@@ -143,13 +206,22 @@ async function innertubeResolve(videoId: string, audio: boolean): Promise<Resolv
 }
 
 export async function resolveStream(videoId: string, audio: boolean): Promise<ResolvedStream> {
+  // Innertube (iOS/Android clients) is the most reliable source; public
+  // Piped/Invidious instances are frequently down or rate-limited.
   const resolved =
+    (await innertubeResolve(videoId, audio)) ||
     (await pipedResolve(videoId, audio)) ||
     (await invidiousResolve(videoId, audio)) ||
-    (await innertubeResolve(videoId, audio)) ||
     // Last resort: a muxed/video stream still yields playable audio.
-    (audio ? await pipedResolve(videoId, false) || await innertubeResolve(videoId, false) : null);
+    (audio ? await innertubeResolve(videoId, false) || await pipedResolve(videoId, false) : null);
 
-  if (!resolved?.url) throw new Error(audio ? "no audio stream found" : "no video stream found");
+
+  if (!resolved?.url) {
+    throw new Error(
+      "YouTube is currently blocking downloads from this server (bot check). " +
+        "Add a YT_COOKIE secret with a signed-in youtube.com cookie to re-enable downloads.",
+    );
+  }
+
   return resolved;
 }
