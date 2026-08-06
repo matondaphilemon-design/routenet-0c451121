@@ -216,6 +216,12 @@ export async function resolveStream(videoId: string, audio: boolean): Promise<Re
     (audio ? await innertubeResolve(videoId, false) || await pipedResolve(videoId, false) : null);
 
 
-  if (!resolved?.url) throw new Error(audio ? "no audio stream found" : "no video stream found");
+  if (!resolved?.url) {
+    throw new Error(
+      "YouTube is currently blocking downloads from this server (bot check). " +
+        "Add a YT_COOKIE secret with a signed-in youtube.com cookie to re-enable downloads.",
+    );
+  }
+
   return resolved;
 }
