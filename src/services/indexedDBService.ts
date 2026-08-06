@@ -112,12 +112,13 @@ export async function getAllSongs(): Promise<OfflineSong[]> {
 
 export async function deleteSong(id: string): Promise<void> {
   const db = await openDB();
-  return new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readwrite");
     tx.objectStore(STORE_NAME).delete(id);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
+  writeIndex(readIndex().filter((x) => x !== id));
 }
 
 export async function isSongDownloaded(id: string): Promise<boolean> {
