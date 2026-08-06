@@ -1,15 +1,20 @@
 /**
- * Download service — all downloads go through the `public-download` proxy
- * (see `src/services/songs.ts`), which resolves a real MP4/M4A stream
- * server-side and streams it back with progress. The blob is cached in
- * IndexedDB for offline playback and optionally saved to the device.
+ * Download service.
+ *
+ * Flow: mint a browser PO token → ask the edge function to resolve direct
+ * stream URLs → fetch the bytes straight from googlevideo in the browser
+ * (the user's IP isn't blocked) → on CORS/403 fall back to the edge proxy →
+ * on failure try the next format. Blobs are cached in IndexedDB for offline
+ * playback and optionally saved to the device.
  */
 import { searchYouTubeForTrack } from "@/hooks/useYouTubePlayback";
 import { getCachedYouTubeId } from "@/components/player/GlobalAudioPlayer";
 import { Track } from "@/data/mockData";
 import { saveSong, isSongDownloaded, getStorageUsage, type OfflineSong } from "./indexedDBService";
+import { getPoToken, invalidatePoToken } from "./poTokenProvider";
 import {
-  fetchMediaBlob, saveBlobToDevice, safeFileName, extensionForType,
+  fetchMediaBlob, fetchDirectBlob, resolveStreamUrls, saveBlobToDevice,
+  safeFileName, extensionForType,
   type DownloadProgress,
 } from "./songs";
 
@@ -24,25 +29,68 @@ async function resolveVideoId(track: Track): Promise<string | undefined> {
 /** The reason the last download failed — surfaced by the UI. */
 export let lastDownloadError = "";
 
+function isTooSmall(blob: Blob | undefined) {
+  return !blob || blob.size < 10000;
+}
+
+/**
+ * Get the audio bytes for a video id, trying every path in order.
+ */
 async function grabAudio(
   track: Track,
   videoId: string,
   onProgress?: (percent: number) => void,
   onDetail?: (p: DownloadProgress) => void,
-) {
-  const attempt = () =>
-    fetchMediaBlob(
-      { videoId, name: safeFileName(`${track.artist} - ${track.title}`, "m4a"), audio: true },
-      (p) => { onProgress?.(p.percent); onDetail?.(p); },
-    );
+): Promise<{ blob: Blob; type: string }> {
+  const report = (p: DownloadProgress) => { onProgress?.(p.percent); onDetail?.(p); };
+  const name = safeFileName(`${track.artist} - ${track.title}`, "m4a");
+  const token = await getPoToken();
+  const errors: string[] = [];
 
+  // 1) Resolve direct URLs and fetch them from the browser.
   try {
-    return await attempt();
-  } catch (first) {
-    console.warn("[Download] retrying:", first);
-    await new Promise((r) => setTimeout(r, 1200));
-    return await attempt();
+    const resolved = await resolveStreamUrls(videoId, true, token);
+    const candidates = [
+      { url: resolved.url, mimeType: resolved.mimeType },
+      ...resolved.alternatives.filter((a) => a.url !== resolved.url).slice(0, 3),
+    ];
+
+    for (const candidate of candidates) {
+      try {
+        const { blob, type } = await fetchDirectBlob(candidate.url, candidate.mimeType, report);
+        if (!isTooSmall(blob)) return { blob, type };
+        errors.push("empty stream");
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        errors.push(msg);
+        if (msg.includes("403")) invalidatePoToken();
+
+        // 2) Same URL, but relayed through the edge proxy (fixes CORS/IP issues).
+        try {
+          const viaProxy = await fetchMediaBlob({ url: candidate.url, name, audio: true }, report);
+          if (!isTooSmall(viaProxy.blob)) return { blob: viaProxy.blob, type: viaProxy.type };
+        } catch (proxyError) {
+          errors.push(proxyError instanceof Error ? proxyError.message : String(proxyError));
+        }
+      }
+    }
+  } catch (e) {
+    errors.push(e instanceof Error ? e.message : String(e));
   }
+
+  // 3) Last resort: let the edge function resolve and stream everything.
+  try {
+    const res = await fetchMediaBlob(
+      { videoId, name, audio: true, poToken: token?.poToken, visitorData: token?.visitorData },
+      report,
+    );
+    if (!isTooSmall(res.blob)) return { blob: res.blob, type: res.type };
+    errors.push("empty proxy stream");
+  } catch (e) {
+    errors.push(e instanceof Error ? e.message : String(e));
+  }
+
+  throw new Error(errors[errors.length - 1] || "could not download this song");
 }
 
 export async function downloadTrack(
@@ -65,7 +113,6 @@ export async function downloadTrack(
     if (!videoId) throw new Error("could not find this song's audio source");
 
     const { blob } = await grabAudio(track, videoId, onProgress, onDetail);
-    if (!blob || blob.size < 10000) throw new Error("downloaded file is empty");
 
     const offlineSong: OfflineSong = {
       id: track.id,
@@ -89,7 +136,6 @@ export async function downloadTrack(
     console.warn("[Download] Failed:", lastDownloadError);
     return false;
   }
-
 }
 
 export async function downloadAlbumTracks(
@@ -104,7 +150,7 @@ export async function downloadAlbumTracks(
     try {
       const ok = await downloadTrack(tracks[i], (p) => onTrackProgress?.(tracks[i].id, p), groupInfo);
       if (ok) downloaded++;
-      await new Promise((r) => setTimeout(r, 500));
+      await new Promise((r) => setTimeout(r, 400));
     } catch { /* keep going */ }
   }
   return downloaded;
@@ -125,7 +171,6 @@ export async function saveTrackToDevice(
     if (!videoId) throw new Error("could not find this song's audio source");
 
     const { blob, type } = await grabAudio(track, videoId, onProgress, onDetail);
-    if (!blob || blob.size < 10000) throw new Error("downloaded file is empty");
 
     saveBlobToDevice(blob, safeFileName(`${track.artist} - ${track.title}`, extensionForType(type)));
 
@@ -148,7 +193,6 @@ export async function saveTrackToDevice(
   } catch (e) {
     lastDownloadError = e instanceof Error ? e.message : String(e);
     console.warn("[saveTrackToDevice] failed:", lastDownloadError);
-
     return false;
   }
 }
