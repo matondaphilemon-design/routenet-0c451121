@@ -147,7 +147,8 @@ export async function saveTrackToDevice(
     return true;
   } catch (e) {
     lastDownloadError = e instanceof Error ? e.message : String(e);
-    console.error("[saveTrackToDevice] failed:", e);
+    console.warn("[saveTrackToDevice] failed:", lastDownloadError);
+
     return false;
   }
 }
