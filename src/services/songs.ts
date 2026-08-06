@@ -135,7 +135,7 @@ export async function fetchDirectBlob(
 
 /** Stream a media file through the proxy with byte-accurate progress. */
 export async function fetchMediaBlob(
-  opts: { videoId?: string; url?: string; name: string; audio?: boolean },
+  opts: { videoId?: string; url?: string; name: string; audio?: boolean; poToken?: string; visitorData?: string },
   onProgress?: (p: DownloadProgress) => void,
 ): Promise<{ blob: Blob; filename: string; type: string }> {
   onProgress?.({ stage: "connecting", received: 0, total: 0, speed: 0, percent: 0 });
@@ -152,7 +152,10 @@ export async function fetchMediaBlob(
       url: opts.url,
       name: opts.name,
       audio: opts.audio ?? true,
+      poToken: opts.poToken,
+      visitorData: opts.visitorData,
     }),
+
   });
 
   if (!res.ok) {
