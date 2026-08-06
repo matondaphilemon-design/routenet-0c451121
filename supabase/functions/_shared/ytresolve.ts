@@ -100,12 +100,55 @@ function urlFromCipher(cipher?: string): string | undefined {
   return url || undefined;
 }
 
+/**
+ * YouTube blocks datacenter IPs with "Sign in to confirm you're not a bot"
+ * unless the request carries a visitor identity (and, ideally, cookies).
+ * A visitorData token is free to mint and is enough for most videos.
+ */
+let visitorDataCache: { value: string; at: number } | null = null;
+
+async function getVisitorData(): Promise<string | null> {
+  if (visitorDataCache && Date.now() - visitorDataCache.at < 30 * 60 * 1000) {
+    return visitorDataCache.value;
+  }
+  try {
+    const res = await fetch("https://www.youtube.com/sw.js_data", {
+      headers: { "User-Agent": "Mozilla/5.0", ...(ytCookie() ? { cookie: ytCookie()! } : {}) },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const text = (await res.text()).replace(/^\)\]\}'/, "");
+    const match = text.match(/"(Cgt[A-Za-z0-9_\-%]{10,})"/);
+    if (!match) return null;
+    visitorDataCache = { value: match[1], at: Date.now() };
+    return match[1];
+  } catch {
+    return null;
+  }
+}
+
+function ytCookie(): string | null {
+  try {
+    return Deno.env.get("YT_COOKIE") || null;
+  } catch {
+    return null;
+  }
+}
+
 async function innertubeResolve(videoId: string, audio: boolean): Promise<ResolvedStream | null> {
+  const visitorData = await getVisitorData();
+  const cookie = ytCookie();
   for (const client of INNERTUBE_CLIENTS) {
     try {
       const res = await fetch(INNERTUBE_ENDPOINT, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "User-Agent": client.userAgent },
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent": client.userAgent,
+          ...(visitorData ? { "X-Goog-Visitor-Id": visitorData } : {}),
+          ...(cookie ? { cookie } : {}),
+        },
+
         body: JSON.stringify({
           videoId,
           contentCheckOk: true,
