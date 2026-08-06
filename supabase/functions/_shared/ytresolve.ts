@@ -1,6 +1,8 @@
 /**
- * Shared YouTube media resolver — Piped pool → Invidious pool → Innertube.
- * Returns a direct (googlevideo) stream URL for audio or muxed video.
+ * Shared YouTube media resolver.
+ *
+ * Order: InnerTube (with a caller-supplied browser PO token when available)
+ * → Piped pool → Invidious pool. Returns direct googlevideo stream URLs.
  */
 
 const PIPED_INSTANCES: string[] = [
@@ -25,26 +27,101 @@ const INVIDIOUS_INSTANCES: string[] = [
 const INNERTUBE_ENDPOINT =
   "https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 
+/**
+ * Client order matters: ANDROID_VR and IOS resolve without a PO token from
+ * datacenter IPs; TVHTML5 and WEB become viable once the browser hands us a
+ * real PO token.
+ */
 const INNERTUBE_CLIENTS = [
-  // ANDROID_VR is the only client that still resolves without a PO token from
-  // datacenter IPs (yt-dlp's current default workaround for the bot check).
   { name: "ANDROID_VR", version: "1.60.19", userAgent: "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip", extra: { deviceMake: "Oculus", deviceModel: "Quest 3", osName: "Android", osVersion: "12L", androidSdkVersion: 32 } },
-  { name: "TVHTML5", version: "7.20250312.16.00", userAgent: "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version" },
-  { name: "MWEB", version: "2.20250312.04.00", userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1" },
   { name: "IOS", version: "20.10.4", userAgent: "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_0 like Mac OS X)", extra: { deviceMake: "Apple", deviceModel: "iPhone16,2", osName: "iOS", osVersion: "18.0.0.22A3354" } },
+  { name: "TVHTML5", version: "7.20250312.16.00", userAgent: "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version" },
+  { name: "WEB", version: "2.20250312.04.00", userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36" },
+  { name: "MWEB", version: "2.20250312.04.00", userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1" },
   { name: "IOS_MUSIC", version: "7.31.2", userAgent: "com.google.ios.youtubemusic/7.31.2 (iPhone16,2; U; CPU iOS 18_0 like Mac OS X)", extra: { deviceMake: "Apple", deviceModel: "iPhone16,2", osName: "iOS", osVersion: "18.0.0.22A3354" } },
   { name: "ANDROID", version: "19.44.38", userAgent: "com.google.android.youtube/19.44.38 (Linux; U; Android 14) gzip", extra: { androidSdkVersion: 34, osName: "Android", osVersion: "14" } },
   { name: "WEB_EMBEDDED_PLAYER", version: "1.20250306.01.00", userAgent: "Mozilla/5.0", thirdParty: { embedUrl: "https://www.youtube.com" } },
   { name: "TVHTML5_SIMPLY_EMBEDDED_PLAYER", version: "2.0", userAgent: "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version", thirdParty: { embedUrl: "https://www.youtube.com" } },
 ] as const;
 
-
-
 export interface ResolvedStream {
   url: string;
   mimeType: string;
   source: string;
+  /** Extra formats the caller can try if the first URL 403s. */
+  alternatives?: Array<{ url: string; mimeType: string; bitrate: number }>;
 }
+
+export interface ResolveOptions {
+  poToken?: string;
+  visitorData?: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* visitorData + signatureTimestamp                                    */
+/* ------------------------------------------------------------------ */
+
+let visitorDataCache: { value: string; at: number } | null = null;
+let stsCache: { value: number; at: number } | null = null;
+
+function ytCookie(): string | null {
+  try {
+    return Deno.env.get("YT_COOKIE") || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function getVisitorData(): Promise<string | null> {
+  if (visitorDataCache && Date.now() - visitorDataCache.at < 30 * 60 * 1000) {
+    return visitorDataCache.value;
+  }
+  try {
+    const res = await fetch("https://www.youtube.com/sw.js_data", {
+      headers: { "User-Agent": "Mozilla/5.0", ...(ytCookie() ? { cookie: ytCookie()! } : {}) },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const text = (await res.text()).replace(/^\)\]\}'/, "");
+    const match = text.match(/"(Cgt[A-Za-z0-9_\-%]{10,})"/);
+    if (!match) return null;
+    visitorDataCache = { value: match[1], at: Date.now() };
+    return match[1];
+  } catch {
+    return null;
+  }
+}
+
+/** Scrape the player's signatureTimestamp from base.js (cached for an hour). */
+export async function getSignatureTimestamp(): Promise<number | null> {
+  if (stsCache && Date.now() - stsCache.at < 60 * 60 * 1000) return stsCache.value;
+  try {
+    const iframe = await fetch("https://www.youtube.com/iframe_api", {
+      headers: { "User-Agent": "Mozilla/5.0" },
+      signal: AbortSignal.timeout(8000),
+    });
+    const body = await iframe.text();
+    const hash = body.match(/player\\?\/([0-9a-fA-F]{8})\\?\//)?.[1];
+    if (!hash) return null;
+    const baseJsUrl = `https://www.youtube.com/s/player/${hash}/player_ias.vflset/en_US/base.js`;
+    const res = await fetch(baseJsUrl, {
+      headers: { "User-Agent": "Mozilla/5.0" },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) return null;
+    const js = await res.text();
+    const sts = js.match(/signatureTimestamp[:=](\d{5})/)?.[1];
+    if (!sts) return null;
+    stsCache = { value: Number(sts), at: Date.now() };
+    return stsCache.value;
+  } catch {
+    return null;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Resolvers                                                           */
+/* ------------------------------------------------------------------ */
 
 async function pipedResolve(videoId: string, audio: boolean): Promise<ResolvedStream | null> {
   for (let i = 0; i < PIPED_INSTANCES.length; i += 4) {
@@ -63,7 +140,12 @@ async function pipedResolve(videoId: string, audio: boolean): Promise<ResolvedSt
             .sort((a: any, b: any) => (b.bitrate ?? 0) - (a.bitrate ?? 0));
           const pick = list.find((s: any) => String(s.mimeType || "").includes("mp4")) || list[0];
           if (!pick?.url) throw new Error("no audio");
-          return { url: pick.url as string, mimeType: pick.mimeType || "audio/mp4", source: `piped:${base}` };
+          return {
+            url: pick.url as string,
+            mimeType: pick.mimeType || "audio/mp4",
+            source: `piped:${base}`,
+            alternatives: list.slice(0, 4).map((s: any) => ({ url: s.url, mimeType: s.mimeType || "audio/mp4", bitrate: s.bitrate || 0 })),
+          };
         }
         const muxed = (Array.isArray(data?.videoStreams) ? data.videoStreams : [])
           .filter((s: any) => s?.url && s.videoOnly === false)
@@ -89,7 +171,14 @@ async function invidiousResolve(videoId: string, audio: boolean): Promise<Resolv
         const list = (data?.adaptiveFormats || [])
           .filter((f: any) => String(f?.type || "").startsWith("audio/") && f?.url)
           .sort((a: any, b: any) => Number(b.bitrate || 0) - Number(a.bitrate || 0));
-        if (list[0]?.url) return { url: list[0].url, mimeType: list[0].type || "audio/mp4", source: `invidious:${base}` };
+        if (list[0]?.url) {
+          return {
+            url: list[0].url,
+            mimeType: list[0].type || "audio/mp4",
+            source: `invidious:${base}`,
+            alternatives: list.slice(0, 4).map((f: any) => ({ url: f.url, mimeType: f.type || "audio/mp4", bitrate: Number(f.bitrate || 0) })),
+          };
+        }
       } else {
         const list = (data?.formatStreams || []).filter((f: any) => f?.url);
         if (list[0]?.url) return { url: list[0].url, mimeType: list[0].type || "video/mp4", source: `invidious:${base}` };
@@ -102,48 +191,19 @@ async function invidiousResolve(videoId: string, audio: boolean): Promise<Resolv
 function urlFromCipher(cipher?: string): string | undefined {
   if (!cipher) return undefined;
   const params = new URLSearchParams(cipher);
-  const url = params.get("url");
-  return url || undefined;
+  return params.get("url") || undefined;
 }
 
-/**
- * YouTube blocks datacenter IPs with "Sign in to confirm you're not a bot"
- * unless the request carries a visitor identity (and, ideally, cookies).
- * A visitorData token is free to mint and is enough for most videos.
- */
-let visitorDataCache: { value: string; at: number } | null = null;
-
-async function getVisitorData(): Promise<string | null> {
-  if (visitorDataCache && Date.now() - visitorDataCache.at < 30 * 60 * 1000) {
-    return visitorDataCache.value;
-  }
-  try {
-    const res = await fetch("https://www.youtube.com/sw.js_data", {
-      headers: { "User-Agent": "Mozilla/5.0", ...(ytCookie() ? { cookie: ytCookie()! } : {}) },
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!res.ok) return null;
-    const text = (await res.text()).replace(/^\)\]\}'/, "");
-    const match = text.match(/"(Cgt[A-Za-z0-9_\-%]{10,})"/);
-    if (!match) return null;
-    visitorDataCache = { value: match[1], at: Date.now() };
-    return match[1];
-  } catch {
-    return null;
-  }
-}
-
-function ytCookie(): string | null {
-  try {
-    return Deno.env.get("YT_COOKIE") || null;
-  } catch {
-    return null;
-  }
-}
-
-async function innertubeResolve(videoId: string, audio: boolean): Promise<ResolvedStream | null> {
-  const visitorData = await getVisitorData();
+async function innertubeResolve(
+  videoId: string,
+  audio: boolean,
+  opts: ResolveOptions = {},
+): Promise<ResolvedStream | null> {
+  const visitorData = opts.visitorData || (await getVisitorData());
+  const poToken = opts.poToken;
   const cookie = ytCookie();
+  const sts = await getSignatureTimestamp();
+
   for (const client of INNERTUBE_CLIENTS) {
     try {
       const res = await fetch(INNERTUBE_ENDPOINT, {
@@ -154,7 +214,6 @@ async function innertubeResolve(videoId: string, audio: boolean): Promise<Resolv
           ...(visitorData ? { "X-Goog-Visitor-Id": visitorData } : {}),
           ...(cookie ? { cookie } : {}),
         },
-
         body: JSON.stringify({
           videoId,
           contentCheckOk: true,
@@ -167,10 +226,15 @@ async function innertubeResolve(videoId: string, audio: boolean): Promise<Resolv
               gl: "US",
               ...(visitorData ? { visitorData } : {}),
               ...(("extra" in client) ? (client as any).extra : {}),
-
             },
             ...(("thirdParty" in client) ? { thirdParty: (client as any).thirdParty } : {}),
           },
+          ...(sts
+            ? { playbackContext: { contentPlaybackContext: { signatureTimestamp: sts, html5Preference: "HTML5_PREF_WANTS" } } }
+            : {}),
+          ...(poToken
+            ? { serviceIntegrityDimensions: { poToken } }
+            : {}),
         }),
         signal: AbortSignal.timeout(12000),
       });
@@ -179,20 +243,16 @@ async function innertubeResolve(videoId: string, audio: boolean): Promise<Resolv
         continue;
       }
       const data = await res.json();
-      const hasFormats =
-        Array.isArray(data?.streamingData?.adaptiveFormats) || Array.isArray(data?.streamingData?.formats);
-      console.log(
-        `[ytresolve] innertube ${client.name} status=${data?.playabilityStatus?.status} formats=${hasFormats} reason=${data?.playabilityStatus?.reason ?? ""}`,
-      );
-      if (!hasFormats) continue;
-
-
-
       const adaptive = Array.isArray(data?.streamingData?.adaptiveFormats) ? data.streamingData.adaptiveFormats : [];
       const regular = Array.isArray(data?.streamingData?.formats) ? data.streamingData.formats : [];
+      console.log(
+        `[ytresolve] innertube ${client.name} po=${!!poToken} status=${data?.playabilityStatus?.status} formats=${adaptive.length + regular.length} reason=${data?.playabilityStatus?.reason ?? ""}`,
+      );
+      if (!adaptive.length && !regular.length) continue;
+
       const pool = audio
         ? adaptive.filter((f: any) => String(f?.mimeType || "").startsWith("audio/"))
-        : regular.filter((f: any) => String(f?.mimeType || "").startsWith("video/"));
+        : [...regular, ...adaptive].filter((f: any) => String(f?.mimeType || "").startsWith("video/"));
 
       const candidates = pool
         .map((f: any) => ({
@@ -204,28 +264,32 @@ async function innertubeResolve(videoId: string, audio: boolean): Promise<Resolv
         .sort((a: any, b: any) => b.bitrate - a.bitrate);
 
       if (candidates[0]?.url) {
-        return { url: candidates[0].url, mimeType: candidates[0].mimeType, source: `innertube:${client.name}` };
+        return {
+          url: candidates[0].url,
+          mimeType: candidates[0].mimeType,
+          source: `innertube:${client.name}${poToken ? "+po" : ""}`,
+          alternatives: candidates.slice(0, 5),
+        };
       }
     } catch { /* next client */ }
   }
   return null;
 }
 
-export async function resolveStream(videoId: string, audio: boolean): Promise<ResolvedStream> {
-  // Innertube (iOS/Android clients) is the most reliable source; public
-  // Piped/Invidious instances are frequently down or rate-limited.
+export async function resolveStream(
+  videoId: string,
+  audio: boolean,
+  opts: ResolveOptions = {},
+): Promise<ResolvedStream> {
   const resolved =
-    (await innertubeResolve(videoId, audio)) ||
+    (await innertubeResolve(videoId, audio, opts)) ||
     (await pipedResolve(videoId, audio)) ||
     (await invidiousResolve(videoId, audio)) ||
-    // Last resort: a muxed/video stream still yields playable audio.
-    (audio ? await innertubeResolve(videoId, false) || await pipedResolve(videoId, false) : null);
-
+    (audio ? (await innertubeResolve(videoId, false, opts)) || (await pipedResolve(videoId, false)) : null);
 
   if (!resolved?.url) {
     throw new Error(
-      "YouTube is currently blocking downloads from this server (bot check). " +
-        "Add a YT_COOKIE secret with a signed-in youtube.com cookie to re-enable downloads.",
+      "YouTube is currently blocking this request (bot check). Please try again in a moment.",
     );
   }
 
