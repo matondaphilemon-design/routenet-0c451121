@@ -144,9 +144,14 @@ export function GlobalAudioPlayer() {
 
   useEffect(() => {
     preloadYouTubeAPI();
+    syncDownloadIndex();
     const timer = setTimeout(proactiveCacheLikedSongs, 5000);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      if (localBlobUrlRef.current) URL.revokeObjectURL(localBlobUrlRef.current);
+    };
   }, []);
+
 
   useEffect(() => {
     if (currentTrack && queue.length > 0) {
