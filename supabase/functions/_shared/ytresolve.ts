@@ -159,7 +159,9 @@ async function innertubeResolve(videoId: string, audio: boolean): Promise<Resolv
               clientVersion: client.version,
               hl: "en",
               gl: "US",
+              ...(visitorData ? { visitorData } : {}),
               ...(("extra" in client) ? (client as any).extra : {}),
+
             },
             ...(("thirdParty" in client) ? { thirdParty: (client as any).thirdParty } : {}),
           },
