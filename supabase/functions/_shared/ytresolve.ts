@@ -111,7 +111,13 @@ async function innertubeResolve(videoId: string, audio: boolean): Promise<Resolv
           contentCheckOk: true,
           racyCheckOk: true,
           context: {
-            client: { clientName: client.name, clientVersion: client.version, hl: "en", gl: "US" },
+            client: {
+              clientName: client.name,
+              clientVersion: client.version,
+              hl: "en",
+              gl: "US",
+              ...(("extra" in client) ? (client as any).extra : {}),
+            },
             ...(("thirdParty" in client) ? { thirdParty: (client as any).thirdParty } : {}),
           },
         }),
@@ -119,7 +125,10 @@ async function innertubeResolve(videoId: string, audio: boolean): Promise<Resolv
       });
       if (!res.ok) continue;
       const data = await res.json();
-      if (data?.playabilityStatus?.status && data.playabilityStatus.status !== "OK") continue;
+      const hasFormats =
+        Array.isArray(data?.streamingData?.adaptiveFormats) || Array.isArray(data?.streamingData?.formats);
+      if (!hasFormats) continue;
+
 
       const adaptive = Array.isArray(data?.streamingData?.adaptiveFormats) ? data.streamingData.adaptiveFormats : [];
       const regular = Array.isArray(data?.streamingData?.formats) ? data.streamingData.formats : [];
