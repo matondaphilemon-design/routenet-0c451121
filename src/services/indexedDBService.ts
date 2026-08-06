@@ -42,15 +42,53 @@ function openDB(): Promise<IDBDatabase> {
   });
 }
 
+/* ---- fast, synchronous "is it downloaded?" index for the UI ---- */
+
+const INDEX_KEY = "tunestream_downloaded_ids_v1";
+export const DOWNLOADS_CHANGED = "downloads-changed";
+
+function readIndex(): string[] {
+  try {
+    const raw = localStorage.getItem(INDEX_KEY);
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  } catch { return []; }
+}
+
+function writeIndex(ids: string[]) {
+  try { localStorage.setItem(INDEX_KEY, JSON.stringify(ids)); } catch { /* quota */ }
+  window.dispatchEvent(new Event(DOWNLOADS_CHANGED));
+}
+
+/** Synchronous check backed by a localStorage mirror of the IndexedDB keys. */
+export function isDownloadedSync(id: string): boolean {
+  return readIndex().includes(id);
+}
+
+export function getDownloadedIds(): string[] {
+  return readIndex();
+}
+
+/** Rebuild the mirror from IndexedDB (call once at startup). */
+export async function syncDownloadIndex(): Promise<void> {
+  try {
+    const all = await getAllSongs();
+    writeIndex(all.map((s) => s.id));
+  } catch { /* ignore */ }
+}
+
 export async function saveSong(song: OfflineSong): Promise<void> {
   const db = await openDB();
-  return new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readwrite");
     tx.objectStore(STORE_NAME).put(song);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
+  const ids = readIndex();
+  if (!ids.includes(song.id)) writeIndex([...ids, song.id]);
+  else window.dispatchEvent(new Event(DOWNLOADS_CHANGED));
 }
+
 
 export async function getSong(id: string): Promise<OfflineSong | undefined> {
   const db = await openDB();
