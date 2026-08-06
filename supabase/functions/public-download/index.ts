@@ -1,11 +1,13 @@
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
-import { resolveStream } from "../_shared/ytresolve.ts";
+import { resolveStream, getVisitorData } from "../_shared/ytresolve.ts";
 
 /**
- * Public media download proxy.
- * Resolves a YouTube video id to a real muxed MP4 / audio stream via Piped and
- * streams the bytes back with `content-disposition: attachment` so the browser
- * (or the app's download service) can save a real file. Bypasses CORS.
+ * Public media endpoint with four modes:
+ *
+ * - `?mode=visitor`  → mint a YouTube `visitorData` id for the browser
+ * - `?mode=bgrelay`  → relay a BotGuard/JNN HTTP call the browser can't make (CORS)
+ * - `?mode=resolve`  → return direct stream URLs + headers so the browser can fetch bytes itself
+ * - default          → proxy the media bytes (range-aware fallback when the direct fetch fails)
  */
 
 const ALLOWED_HOSTS = [
@@ -31,6 +33,9 @@ const ALLOWED_HOSTS = [
   "r4fo.com",
 ];
 
+/** Hosts the BotGuard relay may talk to. */
+const BG_HOSTS = ["jnn-pa.googleapis.com", "www.youtube.com", "youtube.com"];
+
 function cleanName(name: string) {
   const safe = name.replace(/["\\]/g, "").replace(/[^\w\d ._-]+/g, "_").slice(0, 90) || "media";
   return /\.(mp4|m4a|webm|mp3)$/i.test(safe) ? safe : `${safe}.mp4`;
@@ -46,8 +51,12 @@ function assertAllowedTarget(target: string) {
   return parsed;
 }
 
-
-
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
 
 async function proxyMedia(request: Request, target: string, name: string, trusted = false) {
   let parsed: URL;
@@ -86,36 +95,101 @@ async function proxyMedia(request: Request, target: string, name: string, truste
   return new Response(upstream.body, { status: upstream.status, headers });
 }
 
+/** Relay a BotGuard / JNN call on behalf of the browser. */
+async function bgRelay(body: any) {
+  const target = String(body?.url || "");
+  let parsed: URL;
+  try {
+    parsed = new URL(target);
+  } catch {
+    return json({ error: "bad url" }, 400);
+  }
+  if (parsed.protocol !== "https:" || !BG_HOSTS.includes(parsed.hostname.toLowerCase())) {
+    return json({ error: "unsupported relay host" }, 400);
+  }
+
+  const headers: Record<string, string> = {
+    "content-type": "application/json+protobuf",
+    "x-goog-api-key": "AIzaSyDyT5W0Jh49F30Pqqtyfdf7pDLFKLJoAnw",
+    "x-user-agent": "grpc-web-javascript/0.1",
+    "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+  };
+
+  const res = await fetch(parsed.toString(), {
+    method: String(body?.method || "POST"),
+    headers,
+    body: typeof body?.body === "string" ? body.body : undefined,
+    signal: AbortSignal.timeout(15000),
+  });
+
+  const text = await res.text();
+  let parsedBody: unknown = text;
+  try { parsedBody = JSON.parse(text); } catch { /* keep raw */ }
+  return json({ status: res.status, body: parsedBody }, 200);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
+  const url = new URL(req.url);
+  const mode = url.searchParams.get("mode") || "";
+
   try {
+    if (mode === "visitor") {
+      const visitorData = await getVisitorData();
+      if (!visitorData) return json({ error: "could not mint visitor data" }, 502);
+      return json({ visitorData });
+    }
+
+    if (mode === "bgrelay") {
+      const body = await req.json().catch(() => null);
+      if (!body) return json({ error: "bad body" }, 400);
+      return await bgRelay(body);
+    }
+
     let videoId = "";
     let target = "";
     let name = "media";
     let audioOnly = false;
     let trusted = false;
+    let poToken: string | undefined;
+    let visitorData: string | undefined;
 
     if (req.method === "POST") {
       const body = await req.json().catch(() => null) as
-        | { videoId?: string; url?: string; name?: string; audio?: boolean }
+        | { videoId?: string; url?: string; name?: string; audio?: boolean; poToken?: string; visitorData?: string }
         | null;
       if (!body) return new Response("bad body", { status: 400, headers: corsHeaders });
       videoId = body.videoId || "";
       target = body.url || "";
       name = body.name || "media";
       audioOnly = !!body.audio;
+      poToken = body.poToken;
+      visitorData = body.visitorData;
     } else {
-      const url = new URL(req.url);
       videoId = url.searchParams.get("v") || "";
       target = url.searchParams.get("u") || "";
       name = url.searchParams.get("n") || "media";
       audioOnly = url.searchParams.get("a") === "1";
+      poToken = url.searchParams.get("po") || undefined;
+      visitorData = url.searchParams.get("vd") || undefined;
+    }
+
+    if (mode === "resolve") {
+      if (!videoId) return json({ error: "missing videoId" }, 400);
+      const resolved = await resolveStream(videoId, audioOnly, { poToken, visitorData });
+      console.log(`[public-download] resolve ${videoId} via ${resolved.source}`);
+      return json({
+        url: resolved.url,
+        mimeType: resolved.mimeType,
+        source: resolved.source,
+        alternatives: resolved.alternatives ?? [],
+      });
     }
 
     if (!target) {
       if (!videoId) return new Response("missing target", { status: 400, headers: corsHeaders });
-      const resolved = await resolveStream(videoId, audioOnly);
+      const resolved = await resolveStream(videoId, audioOnly, { poToken, visitorData });
       console.log(`[public-download] ${videoId} resolved via ${resolved.source} (${resolved.mimeType})`);
       target = resolved.url;
       trusted = true;
