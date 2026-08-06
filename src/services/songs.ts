@@ -30,9 +30,112 @@ export function safeFileName(name: string, ext: string): string {
   return `${safe}.${ext}`;
 }
 
+export interface ResolvedStreamInfo {
+  url: string;
+  mimeType: string;
+  source: string;
+  alternatives: Array<{ url: string; mimeType: string; bitrate: number }>;
+}
+
+function authHeaders() {
+  return {
+    "Content-Type": "application/json",
+    apikey: SUPABASE_PUBLISHABLE_KEY,
+    Authorization: `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
+  };
+}
+
+/**
+ * Ask the edge function to resolve a video id into direct stream URLs.
+ * A browser-minted PO token is passed along when available.
+ */
+export async function resolveStreamUrls(
+  videoId: string,
+  audio: boolean,
+  token?: { poToken: string; visitorData: string } | null,
+): Promise<ResolvedStreamInfo> {
+  const res = await fetch(`${DOWNLOAD_PROXY}?mode=resolve`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({
+      videoId,
+      audio,
+      poToken: token?.poToken,
+      visitorData: token?.visitorData,
+    }),
+  });
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try { msg = (await res.json())?.error || msg; } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+  const data = await res.json();
+  if (!data?.url) throw new Error("no playable stream found");
+  return {
+    url: data.url,
+    mimeType: data.mimeType || (audio ? "audio/mp4" : "video/mp4"),
+    source: data.source || "edge",
+    alternatives: Array.isArray(data.alternatives) ? data.alternatives : [],
+  };
+}
+
+/**
+ * Fetch media bytes straight from googlevideo in the browser (the user's own
+ * IP is not blocked), with byte-accurate progress.
+ */
+export async function fetchDirectBlob(
+  url: string,
+  mimeType: string,
+  onProgress?: (p: DownloadProgress) => void,
+): Promise<{ blob: Blob; type: string }> {
+  onProgress?.({ stage: "connecting", received: 0, total: 0, speed: 0, percent: 0 });
+
+  const res = await fetch(url, { mode: "cors", credentials: "omit" });
+  if (!res.ok && res.status !== 206) throw new Error(`direct fetch HTTP ${res.status}`);
+
+  const type = res.headers.get("content-type") || mimeType;
+  const total = Number(res.headers.get("content-length") || 0);
+
+  if (!res.body) {
+    const blob = await res.blob();
+    onProgress?.({ stage: "done", received: blob.size, total: blob.size, speed: 0, percent: 100 });
+    return { blob, type };
+  }
+
+  const reader = res.body.getReader();
+  const chunks: BlobPart[] = [];
+  let received = 0;
+  let lastTick = performance.now();
+  let lastReceived = 0;
+  let speed = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    received += value.length;
+    const now = performance.now();
+    if (now - lastTick > 250) {
+      speed = ((received - lastReceived) / (now - lastTick)) * 1000;
+      lastTick = now;
+      lastReceived = received;
+    }
+    const percent = total > 0
+      ? Math.min(99, Math.round((received / total) * 100))
+      : Math.min(95, Math.round((received / (4 * 1024 * 1024)) * 100));
+    onProgress?.({ stage: "downloading", received, total, speed, percent: Math.max(1, percent) });
+  }
+
+  onProgress?.({ stage: "finalizing", received, total: total || received, speed, percent: 99 });
+  const blob = new Blob(chunks, { type });
+  onProgress?.({ stage: "done", received, total: total || received, speed: 0, percent: 100 });
+  return { blob, type };
+}
+
+
 /** Stream a media file through the proxy with byte-accurate progress. */
 export async function fetchMediaBlob(
-  opts: { videoId?: string; url?: string; name: string; audio?: boolean },
+  opts: { videoId?: string; url?: string; name: string; audio?: boolean; poToken?: string; visitorData?: string },
   onProgress?: (p: DownloadProgress) => void,
 ): Promise<{ blob: Blob; filename: string; type: string }> {
   onProgress?.({ stage: "connecting", received: 0, total: 0, speed: 0, percent: 0 });
@@ -49,7 +152,10 @@ export async function fetchMediaBlob(
       url: opts.url,
       name: opts.name,
       audio: opts.audio ?? true,
+      poToken: opts.poToken,
+      visitorData: opts.visitorData,
     }),
+
   });
 
   if (!res.ok) {

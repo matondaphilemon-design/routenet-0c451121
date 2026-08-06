@@ -6,6 +6,8 @@ import { Track } from "@/data/mockData";
 import { toast } from "@/hooks/use-toast";
 import { startBackgroundKeepAlive, stopBackgroundKeepAlive } from "@/lib/mediaUnlock";
 import { getPipedAudioUrl, shouldUseIframe, markAsIframeOnly } from "@/services/pipedAudio";
+import { getSong, isDownloadedSync, syncDownloadIndex } from "@/services/indexedDBService";
+
 import {
   isNativeAudioPluginAvailable,
   preloadNativeAudio,
@@ -119,6 +121,9 @@ export function GlobalAudioPlayer() {
   const nativeEndTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const nativeCurrentTimeRef = useRef<number>(0);
   const nativeAssetIdRef = useRef<string | null>(null);
+  // Object URL for the currently playing offline download, revoked on swap.
+  const localBlobUrlRef = useRef<string | null>(null);
+
   // While crossfading, the outgoing audio is moved here so the new track
   // can be created in audioRef without killing the tail of the previous song.
   const prevAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -139,9 +144,14 @@ export function GlobalAudioPlayer() {
 
   useEffect(() => {
     preloadYouTubeAPI();
+    syncDownloadIndex();
     const timer = setTimeout(proactiveCacheLikedSongs, 5000);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      if (localBlobUrlRef.current) URL.revokeObjectURL(localBlobUrlRef.current);
+    };
   }, []);
+
 
   useEffect(() => {
     if (currentTrack && queue.length > 0) {
@@ -309,13 +319,28 @@ export function GlobalAudioPlayer() {
     }, CROSSFADE_FADE_INTERVAL_MS);
   }, [stopPrevAudio]);
 
-  // Try Piped audio as fallback
+  // Offline-first: a downloaded blob, otherwise Piped audio
   const tryPlayWithPiped = useCallback(async (videoId: string, track: Track) => {
-    if (shouldUseIframe(videoId)) return false;
+    let result: { url: string } | null = null;
+
+    // Downloaded tracks always play from local storage — works fully offline.
+    try {
+      if (isDownloadedSync(track.id)) {
+        const saved = await getSong(track.id);
+        if (saved?.blob) {
+          if (localBlobUrlRef.current) URL.revokeObjectURL(localBlobUrlRef.current);
+          localBlobUrlRef.current = URL.createObjectURL(saved.blob);
+          result = { url: localBlobUrlRef.current };
+        }
+      }
+    } catch { /* fall through to network */ }
+
+    if (!result && shouldUseIframe(videoId)) return false;
 
     try {
-      const result = await getPipedAudioUrl(videoId, 6000);
+      if (!result) result = await getPipedAudioUrl(videoId, 6000);
       if (!result) return false;
+
 
       if (isNativeAudioPluginAvailable()) {
         stopPipedAudio();
