@@ -154,12 +154,15 @@ async function innertubeResolve(videoId: string, audio: boolean): Promise<Resolv
 }
 
 export async function resolveStream(videoId: string, audio: boolean): Promise<ResolvedStream> {
+  // Innertube (iOS/Android clients) is the most reliable source; public
+  // Piped/Invidious instances are frequently down or rate-limited.
   const resolved =
+    (await innertubeResolve(videoId, audio)) ||
     (await pipedResolve(videoId, audio)) ||
     (await invidiousResolve(videoId, audio)) ||
-    (await innertubeResolve(videoId, audio)) ||
     // Last resort: a muxed/video stream still yields playable audio.
-    (audio ? await pipedResolve(videoId, false) || await innertubeResolve(videoId, false) : null);
+    (audio ? await innertubeResolve(videoId, false) || await pipedResolve(videoId, false) : null);
+
 
   if (!resolved?.url) throw new Error(audio ? "no audio stream found" : "no video stream found");
   return resolved;
