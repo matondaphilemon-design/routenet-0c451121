@@ -6,6 +6,8 @@ import { Track } from "@/data/mockData";
 import { toast } from "@/hooks/use-toast";
 import { startBackgroundKeepAlive, stopBackgroundKeepAlive } from "@/lib/mediaUnlock";
 import { getPipedAudioUrl, shouldUseIframe, markAsIframeOnly } from "@/services/pipedAudio";
+import { getSong, isDownloadedSync, syncDownloadIndex } from "@/services/indexedDBService";
+
 import {
   isNativeAudioPluginAvailable,
   preloadNativeAudio,
