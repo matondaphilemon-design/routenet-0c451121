@@ -123,11 +123,18 @@ async function innertubeResolve(videoId: string, audio: boolean): Promise<Resolv
         }),
         signal: AbortSignal.timeout(12000),
       });
-      if (!res.ok) continue;
+      if (!res.ok) {
+        console.log(`[ytresolve] innertube ${client.name} HTTP ${res.status}`);
+        continue;
+      }
       const data = await res.json();
       const hasFormats =
         Array.isArray(data?.streamingData?.adaptiveFormats) || Array.isArray(data?.streamingData?.formats);
+      console.log(
+        `[ytresolve] innertube ${client.name} status=${data?.playabilityStatus?.status} formats=${hasFormats} reason=${data?.playabilityStatus?.reason ?? ""}`,
+      );
       if (!hasFormats) continue;
+
 
 
       const adaptive = Array.isArray(data?.streamingData?.adaptiveFormats) ? data.streamingData.adaptiveFormats : [];
