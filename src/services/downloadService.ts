@@ -85,9 +85,11 @@ export async function downloadTrack(
     return true;
   } catch (error) {
     lastDownloadError = error instanceof Error ? error.message : String(error);
-    console.error("[Download] Failed:", error);
+    // Warn (not error): download failures are recoverable and surfaced as a toast.
+    console.warn("[Download] Failed:", lastDownloadError);
     return false;
   }
+
 }
 
 export async function downloadAlbumTracks(
