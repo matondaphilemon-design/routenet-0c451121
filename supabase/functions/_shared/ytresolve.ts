@@ -26,12 +26,18 @@ const INNERTUBE_ENDPOINT =
   "https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 
 const INNERTUBE_CLIENTS = [
+  // ANDROID_VR is the only client that still resolves without a PO token from
+  // datacenter IPs (yt-dlp's current default workaround for the bot check).
+  { name: "ANDROID_VR", version: "1.60.19", userAgent: "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip", extra: { deviceMake: "Oculus", deviceModel: "Quest 3", osName: "Android", osVersion: "12L", androidSdkVersion: 32 } },
+  { name: "TVHTML5", version: "7.20250312.16.00", userAgent: "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version" },
+  { name: "MWEB", version: "2.20250312.04.00", userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1" },
   { name: "IOS", version: "20.10.4", userAgent: "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_0 like Mac OS X)", extra: { deviceMake: "Apple", deviceModel: "iPhone16,2", osName: "iOS", osVersion: "18.0.0.22A3354" } },
   { name: "IOS_MUSIC", version: "7.31.2", userAgent: "com.google.ios.youtubemusic/7.31.2 (iPhone16,2; U; CPU iOS 18_0 like Mac OS X)", extra: { deviceMake: "Apple", deviceModel: "iPhone16,2", osName: "iOS", osVersion: "18.0.0.22A3354" } },
   { name: "ANDROID", version: "19.44.38", userAgent: "com.google.android.youtube/19.44.38 (Linux; U; Android 14) gzip", extra: { androidSdkVersion: 34, osName: "Android", osVersion: "14" } },
   { name: "WEB_EMBEDDED_PLAYER", version: "1.20250306.01.00", userAgent: "Mozilla/5.0", thirdParty: { embedUrl: "https://www.youtube.com" } },
   { name: "TVHTML5_SIMPLY_EMBEDDED_PLAYER", version: "2.0", userAgent: "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version", thirdParty: { embedUrl: "https://www.youtube.com" } },
 ] as const;
+
 
 
 export interface ResolvedStream {
