@@ -16,7 +16,7 @@ import { buildURL, getHeaders } from "bgutils-js/utils";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "@/integrations/supabase/config";
 
 const REQUEST_KEY = "O43z0dpjhgX20SCx4KAo";
-const CACHE_KEY = "routenet_po_token_v2";
+const CACHE_KEY = "routenet_po_token_v3";
 const DEFAULT_TTL_MS = 6 * 60 * 60 * 1000; // 6h — YouTube's estimate is ~12h
 const ENDPOINT = `${SUPABASE_URL}/functions/v1/public-download`;
 
@@ -96,7 +96,7 @@ async function relayFetch(input: RequestInfo | URL, init?: RequestInit): Promise
   });
 }
 
-/** Mint a fresh visitorData string (relayed — youtube.com has no CORS). */
+/** Mint a visitor id. YouTube does not expose this endpoint with browser CORS. */
 async function fetchVisitorData(): Promise<string | null> {
   try {
     const res = await edgeCall("visitor", {});

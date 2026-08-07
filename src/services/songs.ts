@@ -37,6 +37,61 @@ export interface ResolvedStreamInfo {
   alternatives: Array<{ url: string; mimeType: string; bitrate: number }>;
 }
 
+const YOUTUBE_PLAYER_ENDPOINT = "https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
+
+/** Resolve on the listener's network first; OAuth identity tokens are never sent to YouTube. */
+async function resolveInBrowser(
+  videoId: string,
+  audio: boolean,
+  token?: { poToken: string; gvsPoToken: string; visitorData: string } | null,
+): Promise<ResolvedStreamInfo | null> {
+  if (!token || typeof window === "undefined") return null;
+  try {
+    const res = await fetch(YOUTUBE_PLAYER_ENDPOINT, {
+      method: "POST",
+      mode: "cors",
+      credentials: "omit",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Visitor-Id": token.visitorData,
+      },
+      body: JSON.stringify({
+        videoId,
+        contentCheckOk: true,
+        racyCheckOk: true,
+        context: {
+          client: {
+            clientName: "WEB",
+            clientVersion: "2.20250312.04.00",
+            hl: "en",
+            gl: "US",
+            visitorData: token.visitorData,
+          },
+        },
+        serviceIntegrityDimensions: { poToken: token.poToken },
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const adaptive = Array.isArray(data?.streamingData?.adaptiveFormats) ? data.streamingData.adaptiveFormats : [];
+    const regular = Array.isArray(data?.streamingData?.formats) ? data.streamingData.formats : [];
+    const pool = audio
+      ? adaptive.filter((f: any) => String(f?.mimeType || "").startsWith("audio/") && f?.url)
+      : [...regular, ...adaptive].filter((f: any) => String(f?.mimeType || "").startsWith("video/") && f?.url);
+    const alternatives = pool
+      .map((f: any) => {
+        const url = new URL(String(f.url));
+        url.searchParams.set("pot", token.gvsPoToken);
+        return { url: url.toString(), mimeType: String(f.mimeType || (audio ? "audio/mp4" : "video/mp4")).split(";")[0], bitrate: Number(f.bitrate || 0) };
+      })
+      .sort((a: any, b: any) => b.bitrate - a.bitrate);
+    if (!alternatives[0]?.url) return null;
+    return { ...alternatives[0], source: "browser:innertube", alternatives };
+  } catch {
+    return null;
+  }
+}
+
 function authHeaders() {
   return {
     "Content-Type": "application/json",
@@ -54,6 +109,9 @@ export async function resolveStreamUrls(
   audio: boolean,
   token?: { poToken: string; gvsPoToken: string; visitorData: string } | null,
 ): Promise<ResolvedStreamInfo> {
+  const local = await resolveInBrowser(videoId, audio, token);
+  if (local) return local;
+
   const res = await fetch(`${DOWNLOAD_PROXY}?mode=resolve`, {
     method: "POST",
     headers: authHeaders(),
