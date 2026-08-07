@@ -99,7 +99,7 @@ export function DetailPage({
   const metaLine = [typeLabel, ...meta].filter(Boolean).join(" · ");
 
   return (
-    <div className="custom-scrollbar min-h-screen overflow-y-auto bg-background pb-28 lg:pb-8">
+    <div className="bg-background pb-4 lg:min-h-full lg:pb-0">
       {/* Header wash from the artwork */}
       <div className="relative">
         <div
@@ -179,7 +179,7 @@ export function DetailPage({
       </div>
 
       {/* Tracklist */}
-      <ol className="mt-4 px-5 lg:mt-2 lg:px-8">
+      <ol className="mt-4 px-5 pb-2 lg:mt-2 lg:px-8 lg:pb-0">
         {tracks.map((track, i) => {
           const active = currentTrack?.id === track.id;
           const dl = progressMap[track.id];
