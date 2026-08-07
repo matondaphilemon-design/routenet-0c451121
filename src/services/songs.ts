@@ -52,7 +52,7 @@ function authHeaders() {
 export async function resolveStreamUrls(
   videoId: string,
   audio: boolean,
-  token?: { poToken: string; visitorData: string } | null,
+  token?: { poToken: string; gvsPoToken: string; visitorData: string } | null,
 ): Promise<ResolvedStreamInfo> {
   const res = await fetch(`${DOWNLOAD_PROXY}?mode=resolve`, {
     method: "POST",
@@ -61,6 +61,7 @@ export async function resolveStreamUrls(
       videoId,
       audio,
       poToken: token?.poToken,
+      gvsPoToken: token?.gvsPoToken,
       visitorData: token?.visitorData,
     }),
   });
@@ -135,7 +136,7 @@ export async function fetchDirectBlob(
 
 /** Stream a media file through the proxy with byte-accurate progress. */
 export async function fetchMediaBlob(
-  opts: { videoId?: string; url?: string; name: string; audio?: boolean; poToken?: string; visitorData?: string },
+  opts: { videoId?: string; url?: string; name: string; audio?: boolean; poToken?: string; gvsPoToken?: string; visitorData?: string },
   onProgress?: (p: DownloadProgress) => void,
 ): Promise<{ blob: Blob; filename: string; type: string }> {
   onProgress?.({ stage: "connecting", received: 0, total: 0, speed: 0, percent: 0 });
@@ -153,6 +154,7 @@ export async function fetchMediaBlob(
       name: opts.name,
       audio: opts.audio ?? true,
       poToken: opts.poToken,
+      gvsPoToken: opts.gvsPoToken,
       visitorData: opts.visitorData,
     }),
 

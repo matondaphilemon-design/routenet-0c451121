@@ -16,26 +16,30 @@ import { buildURL, getHeaders } from "bgutils-js/utils";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "@/integrations/supabase/config";
 
 const REQUEST_KEY = "O43z0dpjhgX20SCx4KAo";
-const CACHE_KEY = "routenet_po_token_v1";
+const CACHE_KEY = "routenet_po_token_v2";
 const DEFAULT_TTL_MS = 6 * 60 * 60 * 1000; // 6h — YouTube's estimate is ~12h
 const ENDPOINT = `${SUPABASE_URL}/functions/v1/public-download`;
 
 export interface PoTokenBundle {
+  /** Player token, content-bound to the requested video id. */
   poToken: string;
+  /** Media token, content-bound to visitorData and added to GVS URLs. */
+  gvsPoToken: string;
   visitorData: string;
+  videoId: string;
   expiresAt: number;
 }
 
 let memory: PoTokenBundle | null = null;
 let inFlight: Promise<PoTokenBundle | null> | null = null;
 
-function readCache(): PoTokenBundle | null {
-  if (memory && memory.expiresAt > Date.now()) return memory;
+function readCache(videoId: string): PoTokenBundle | null {
+  if (memory && memory.videoId === videoId && memory.expiresAt > Date.now()) return memory;
   try {
     const raw = localStorage.getItem(CACHE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as PoTokenBundle;
-    if (parsed?.poToken && parsed?.visitorData && parsed.expiresAt > Date.now()) {
+    if (parsed?.poToken && parsed?.gvsPoToken && parsed?.visitorData && parsed.videoId === videoId && parsed.expiresAt > Date.now()) {
       memory = parsed;
       return parsed;
     }
@@ -104,7 +108,7 @@ async function fetchVisitorData(): Promise<string | null> {
   }
 }
 
-async function mint(): Promise<PoTokenBundle | null> {
+async function mint(videoId: string): Promise<PoTokenBundle | null> {
   if (typeof window === "undefined") return null;
 
   const visitorData = await fetchVisitorData();
@@ -144,14 +148,26 @@ async function mint(): Promise<PoTokenBundle | null> {
   if (!integrityTokenData.integrityToken) throw new Error("no integrity token returned");
 
   const minter = await WebPoMinter.create(integrityTokenData, webPoSignalOutput as any);
-  const poToken = await minter.mintAsWebsafeString(visitorData);
-  if (!poToken) throw new Error("PO token minting returned nothing");
+  // Player requests and Google Video Server requests use different content
+  // bindings. Reusing the visitor-bound token for the player is rejected as
+  // LOGIN_REQUIRED / bot-check even though the token itself is well formed.
+  const [poToken, gvsPoToken] = await Promise.all([
+    minter.mintAsWebsafeString(videoId),
+    minter.mintAsWebsafeString(visitorData),
+  ]);
+  if (!poToken || !gvsPoToken) throw new Error("PO token minting returned nothing");
 
   const ttl = integrityTokenData.estimatedTtlSecs
     ? integrityTokenData.estimatedTtlSecs * 1000
     : DEFAULT_TTL_MS;
 
-  const bundle: PoTokenBundle = { poToken, visitorData, expiresAt: Date.now() + Math.min(ttl, DEFAULT_TTL_MS) };
+  const bundle: PoTokenBundle = {
+    poToken,
+    gvsPoToken,
+    visitorData,
+    videoId,
+    expiresAt: Date.now() + Math.min(ttl, DEFAULT_TTL_MS),
+  };
   writeCache(bundle);
   return bundle;
 }
@@ -161,12 +177,12 @@ async function mint(): Promise<PoTokenBundle | null> {
  * Never throws — resolves to `null` when minting isn't possible so callers
  * can fall back to the server-side resolver.
  */
-export async function getPoToken(): Promise<PoTokenBundle | null> {
-  const cached = readCache();
+export async function getPoToken(videoId: string): Promise<PoTokenBundle | null> {
+  const cached = readCache(videoId);
   if (cached) return cached;
   if (inFlight) return inFlight;
 
-  inFlight = mint()
+  inFlight = mint(videoId)
     .catch((e) => {
       console.warn("[poToken] mint failed:", e instanceof Error ? e.message : e);
       return null;

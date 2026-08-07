@@ -44,7 +44,7 @@ async function grabAudio(
 ): Promise<{ blob: Blob; type: string }> {
   const report = (p: DownloadProgress) => { onProgress?.(p.percent); onDetail?.(p); };
   const name = safeFileName(`${track.artist} - ${track.title}`, "m4a");
-  const token = await getPoToken();
+  let token = await getPoToken(videoId);
   const errors: string[] = [];
 
   // 1) Resolve direct URLs and fetch them from the browser.
@@ -76,12 +76,35 @@ async function grabAudio(
     }
   } catch (e) {
     errors.push(e instanceof Error ? e.message : String(e));
+
+    // A cached integrity token may have been invalidated early by YouTube.
+    // Mint once more before falling back to server-only resolution.
+    if (token) {
+      invalidatePoToken();
+      token = await getPoToken(videoId);
+      if (token) {
+        try {
+          const resolved = await resolveStreamUrls(videoId, true, token);
+          const retry = await fetchDirectBlob(resolved.url, resolved.mimeType, report);
+          if (!isTooSmall(retry.blob)) return retry;
+        } catch (retryError) {
+          errors.push(retryError instanceof Error ? retryError.message : String(retryError));
+        }
+      }
+    }
   }
 
   // 3) Last resort: let the edge function resolve and stream everything.
   try {
     const res = await fetchMediaBlob(
-      { videoId, name, audio: true, poToken: token?.poToken, visitorData: token?.visitorData },
+      {
+        videoId,
+        name,
+        audio: true,
+        poToken: token?.poToken,
+        gvsPoToken: token?.gvsPoToken,
+        visitorData: token?.visitorData,
+      },
       report,
     );
     if (!isTooSmall(res.blob)) return { blob: res.blob, type: res.type };
