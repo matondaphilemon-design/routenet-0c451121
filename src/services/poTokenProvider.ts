@@ -16,7 +16,7 @@ import { buildURL, getHeaders } from "bgutils-js/utils";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "@/integrations/supabase/config";
 
 const REQUEST_KEY = "O43z0dpjhgX20SCx4KAo";
-const CACHE_KEY = "routenet_po_token_v2";
+const CACHE_KEY = "routenet_po_token_v3";
 const DEFAULT_TTL_MS = 6 * 60 * 60 * 1000; // 6h — YouTube's estimate is ~12h
 const ENDPOINT = `${SUPABASE_URL}/functions/v1/public-download`;
 
@@ -96,8 +96,22 @@ async function relayFetch(input: RequestInfo | URL, init?: RequestInit): Promise
   });
 }
 
-/** Mint a fresh visitorData string (relayed — youtube.com has no CORS). */
+/** Mint a visitor id. YouTube does not expose this endpoint with browser CORS. */
 async function fetchVisitorData(): Promise<string | null> {
+  // Prefer the listener's own network. This keeps visitorData and the
+  // browser-minted proof bound to the same network identity when CORS allows.
+  try {
+    const direct = await fetch("https://www.youtube.com/sw.js_data", {
+      mode: "cors",
+      credentials: "include",
+    });
+    if (direct.ok) {
+      const text = (await direct.text()).replace(/^\)\]\}'/, "");
+      const match = text.match(/"(Cgt[A-Za-z0-9_\-%]{10,})"/);
+      if (match?.[1]) return match[1];
+    }
+  } catch { /* YouTube may not advertise CORS; use the relay below. */ }
+
   try {
     const res = await edgeCall("visitor", {});
     if (!res.ok) return null;

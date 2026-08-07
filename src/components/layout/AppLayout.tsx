@@ -3,6 +3,10 @@ import { useLocation } from "react-router-dom";
 import { BottomNav } from "./BottomNav";
 import { MiniPlayer } from "./MiniPlayer";
 import { GlobalAudioPlayer } from "@/components/player/GlobalAudioPlayer";
+import { DesktopSidebar } from "./DesktopSidebar";
+import { DesktopTopBar } from "./DesktopTopBar";
+import { DesktopNowPlayingPanel } from "./DesktopNowPlayingPanel";
+import { DesktopPlayerBar } from "./DesktopPlayerBar";
 
 import { usePlayer } from "@/context/PlayerContext";
 import { useDJBridge } from "@/hooks/useDJBridge";
@@ -23,22 +27,22 @@ export function AppLayout({ children }: AppLayoutProps) {
   const hideMiniplayer = hideChrome || location.pathname === "/now-playing" || location.pathname === "/ai-dj" || location.pathname === "/radio";
   
   return (
-    <div className="relative flex min-h-screen flex-col overflow-x-hidden">
-      <div
-        className="pointer-events-none fixed top-0 right-0 h-[50vh] w-[50vw] rounded-full blur-[120px] opacity-[0.05]"
-        style={{ background: "hsl(141 73% 42%)" }}
-      />
-      <div
-        className="pointer-events-none fixed bottom-0 left-0 h-[40vh] w-[40vw] rounded-full blur-[100px] opacity-[0.03]"
-        style={{ background: "hsl(141 73% 42%)" }}
-      />
+    <div className="relative flex min-h-screen flex-col overflow-x-hidden lg:h-screen lg:overflow-hidden">
       <GlobalAudioPlayer />
-      <main className={`relative z-10 flex-1 ${currentTrack && !hideMiniplayer ? "pb-36" : "pb-20"}`}>
-        {children}
-      </main>
+      <div className="flex min-h-0 flex-1">
+        {!hideChrome && <DesktopSidebar />}
+        <div className="flex min-w-0 flex-1 flex-col">
+          {!hideChrome && <DesktopTopBar />}
+          <main className={`relative min-h-0 flex-1 lg:overflow-y-auto ${currentTrack && !hideMiniplayer ? "pb-28 lg:pb-0" : "pb-14 lg:pb-0"}`}>
+            {children}
+          </main>
+        </div>
+        {!hideChrome && <DesktopNowPlayingPanel />}
+      </div>
       
-      {!hideMiniplayer && <MiniPlayer />}
-      {!hideChrome && <BottomNav />}
+      {!hideMiniplayer && <div className="lg:hidden"><MiniPlayer /></div>}
+      {!hideChrome && <div className="lg:hidden"><BottomNav /></div>}
+      {!hideChrome && <DesktopPlayerBar />}
     </div>
   );
 }
