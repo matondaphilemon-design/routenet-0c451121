@@ -54,6 +54,7 @@ export interface ResolvedStream {
 
 export interface ResolveOptions {
   poToken?: string;
+  gvsPoToken?: string;
   visitorData?: string;
 }
 
@@ -204,7 +205,13 @@ async function innertubeResolve(
   const cookie = ytCookie();
   const sts = await getSignatureTimestamp();
 
-  for (const client of INNERTUBE_CLIENTS) {
+  // WebPO tokens are generated for the WEB client. Try compatible clients
+  // first when one is supplied; mobile app clients use different attestation.
+  const clients = poToken
+    ? [...INNERTUBE_CLIENTS].sort((a, b) => Number(b.name === "WEB") - Number(a.name === "WEB"))
+    : INNERTUBE_CLIENTS;
+
+  for (const client of clients) {
     try {
       const res = await fetch(INNERTUBE_ENDPOINT, {
         method: "POST",
@@ -261,6 +268,16 @@ async function innertubeResolve(
           bitrate: Number(f?.bitrate || 0),
         }))
         .filter((f: any) => !!f.url)
+        .map((f: any) => {
+          if (!opts.gvsPoToken) return f;
+          try {
+            const mediaUrl = new URL(f.url);
+            mediaUrl.searchParams.set("pot", opts.gvsPoToken);
+            return { ...f, url: mediaUrl.toString() };
+          } catch {
+            return f;
+          }
+        })
         .sort((a: any, b: any) => b.bitrate - a.bitrate);
 
       if (candidates[0]?.url) {

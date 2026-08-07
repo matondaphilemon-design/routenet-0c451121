@@ -153,11 +153,12 @@ Deno.serve(async (req) => {
     let audioOnly = false;
     let trusted = false;
     let poToken: string | undefined;
+    let gvsPoToken: string | undefined;
     let visitorData: string | undefined;
 
     if (req.method === "POST") {
       const body = await req.json().catch(() => null) as
-        | { videoId?: string; url?: string; name?: string; audio?: boolean; poToken?: string; visitorData?: string }
+        | { videoId?: string; url?: string; name?: string; audio?: boolean; poToken?: string; gvsPoToken?: string; visitorData?: string }
         | null;
       if (!body) return new Response("bad body", { status: 400, headers: corsHeaders });
       videoId = body.videoId || "";
@@ -165,6 +166,7 @@ Deno.serve(async (req) => {
       name = body.name || "media";
       audioOnly = !!body.audio;
       poToken = body.poToken;
+      gvsPoToken = body.gvsPoToken;
       visitorData = body.visitorData;
     } else {
       videoId = url.searchParams.get("v") || "";
@@ -172,12 +174,13 @@ Deno.serve(async (req) => {
       name = url.searchParams.get("n") || "media";
       audioOnly = url.searchParams.get("a") === "1";
       poToken = url.searchParams.get("po") || undefined;
+      gvsPoToken = url.searchParams.get("gpo") || undefined;
       visitorData = url.searchParams.get("vd") || undefined;
     }
 
     if (mode === "resolve") {
       if (!videoId) return json({ error: "missing videoId" }, 400);
-      const resolved = await resolveStream(videoId, audioOnly, { poToken, visitorData });
+      const resolved = await resolveStream(videoId, audioOnly, { poToken, gvsPoToken, visitorData });
       console.log(`[public-download] resolve ${videoId} via ${resolved.source}`);
       return json({
         url: resolved.url,
@@ -189,7 +192,7 @@ Deno.serve(async (req) => {
 
     if (!target) {
       if (!videoId) return new Response("missing target", { status: 400, headers: corsHeaders });
-      const resolved = await resolveStream(videoId, audioOnly, { poToken, visitorData });
+      const resolved = await resolveStream(videoId, audioOnly, { poToken, gvsPoToken, visitorData });
       console.log(`[public-download] ${videoId} resolved via ${resolved.source} (${resolved.mimeType})`);
       target = resolved.url;
       trusted = true;
