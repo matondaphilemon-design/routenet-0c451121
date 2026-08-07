@@ -33,7 +33,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         {!hideChrome && <DesktopSidebar />}
         <div className="flex min-w-0 flex-1 flex-col">
           {!hideChrome && <DesktopTopBar />}
-          <main className={`relative min-h-0 flex-1 lg:overflow-y-auto ${currentTrack && !hideMiniplayer ? "pb-36 lg:pb-0" : "pb-20 lg:pb-0"}`}>
+          <main className={`relative min-h-0 flex-1 lg:overflow-y-auto ${currentTrack && !hideMiniplayer ? "pb-28 lg:pb-0" : "pb-14 lg:pb-0"}`}>
             {children}
           </main>
         </div>

@@ -98,6 +98,20 @@ async function relayFetch(input: RequestInfo | URL, init?: RequestInit): Promise
 
 /** Mint a visitor id. YouTube does not expose this endpoint with browser CORS. */
 async function fetchVisitorData(): Promise<string | null> {
+  // Prefer the listener's own network. This keeps visitorData and the
+  // browser-minted proof bound to the same network identity when CORS allows.
+  try {
+    const direct = await fetch("https://www.youtube.com/sw.js_data", {
+      mode: "cors",
+      credentials: "include",
+    });
+    if (direct.ok) {
+      const text = (await direct.text()).replace(/^\)\]\}'/, "");
+      const match = text.match(/"(Cgt[A-Za-z0-9_\-%]{10,})"/);
+      if (match?.[1]) return match[1];
+    }
+  } catch { /* YouTube may not advertise CORS; use the relay below. */ }
+
   try {
     const res = await edgeCall("visitor", {});
     if (!res.ok) return null;
