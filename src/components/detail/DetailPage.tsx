@@ -101,7 +101,7 @@ export function DetailPage({
   return (
     <div className="bg-background pb-4 lg:min-h-full lg:pb-0">
       {/* Header wash from the artwork */}
-      <div className="relative">
+      <div className="relative overflow-hidden">
         <div
           className="pointer-events-none absolute inset-x-0 top-0 h-[62vh] lg:h-[42vh]"
           style={{ backgroundImage: `url(${cover})`, backgroundSize: "cover", backgroundPosition: "center", filter: "blur(60px) saturate(150%) brightness(0.5)" }}
