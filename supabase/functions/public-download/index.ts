@@ -137,9 +137,11 @@ Deno.serve(async (req) => {
   try {
     if (mode === "visitor") {
       const visitorData = await getVisitorData();
-      if (!visitorData) return json({ error: "could not mint visitor data" }, 502);
-      return json({ visitorData });
+      // Soft failure: 200 with a null value so the client can fall back
+      // instead of surfacing a 502 runtime error.
+      return json({ visitorData: visitorData ?? null });
     }
+
 
     if (mode === "bgrelay") {
       const body = await req.json().catch(() => null);
