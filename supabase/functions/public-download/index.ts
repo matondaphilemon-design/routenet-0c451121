@@ -197,14 +197,30 @@ Deno.serve(async (req) => {
 
     if (mode === "resolve") {
       if (!videoId) return json({ error: "missing videoId" }, 400);
-      const resolved = await resolveStream(videoId, audioOnly, { poToken, gvsPoToken, visitorData });
-      console.log(`[public-download] resolve ${videoId} via ${resolved.source}`);
-      return json({
-        url: resolved.url,
-        mimeType: resolved.mimeType,
-        source: resolved.source,
-        alternatives: resolved.alternatives ?? [],
-      });
+      try {
+        const resolved = await resolveStream(videoId, audioOnly, { poToken, gvsPoToken, visitorData });
+        console.log(`[public-download] resolve ${videoId} via ${resolved.source}`);
+        return json({
+          ok: true,
+          url: resolved.url,
+          mimeType: resolved.mimeType,
+          source: resolved.source,
+          alternatives: resolved.alternatives ?? [],
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "media unavailable";
+        const blocked = /blocking this request|bot check|sign in|login_required/i.test(message);
+        console.warn(`[public-download] resolve unavailable for ${videoId}: ${message}`);
+        // Resolution misses are expected upstream results, not function
+        // failures. A 200 keeps the preview runtime from treating a temporary
+        // YouTube block as an unhandled Edge Function crash.
+        return json({
+          ok: false,
+          error: message,
+          code: blocked ? "YOUTUBE_TEMPORARILY_BLOCKED" : "MEDIA_UNAVAILABLE",
+          retryable: blocked,
+        });
+      }
     }
 
     if (!target) {
