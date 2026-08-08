@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowDownCircle, ChevronDown, FileText, Heart, Loader2, ListMusic, MonitorPlay, MoreHorizontal, Pause, Play, Plus, Repeat, Repeat1, Share2, Shuffle, SkipBack, SkipForward } from "lucide-react";
+import { ArrowDownCircle, ChevronDown, Heart, Loader2, ListMusic, Mic2, MoreHorizontal, Pause, Play, Plus, Repeat, Repeat1, Share2, Shuffle, SkipBack, SkipForward } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { AddToPlaylistDialog } from "@/components/AddToPlaylistDialog";
@@ -260,7 +260,7 @@ export default function NowPlaying() {
         {/* Secondary actions — compact translucent pill bar */}
         <nav aria-label="Track actions" className="mx-auto flex w-full max-w-sm items-center justify-around rounded-full border border-border/40 bg-foreground/[0.06] px-1.5 py-1 backdrop-blur-xl">
           {[
-            { icon: FileText, label: "Lyrics", action: () => navigate("/lyrics"), active: false },
+            { icon: Mic2, label: "Lyrics", action: () => navigate("/lyrics"), active: false },
             { icon: Plus, label: "Save to playlist", action: () => setShowPlaylistDialog(true), active: false },
             {
               icon: downloadStatus === "downloading" ? Loader2 : ArrowDownCircle,
@@ -269,7 +269,7 @@ export default function NowPlaying() {
               active: downloadStatus === "done",
               spin: downloadStatus === "downloading",
             },
-            { icon: MonitorPlay, label: "Watch video", action: () => setShowVideo((v) => !v), active: showVideo },
+
             { icon: ListMusic, label: "Open queue", action: () => navigate("/queue"), active: false },
             { icon: Share2, label: "Share", action: () => setShowShareSheet(true), active: false },
           ].map(({ icon: Icon, label, action, active, spin }: any) => (
