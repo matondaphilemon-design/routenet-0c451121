@@ -71,7 +71,10 @@ async function resolveInBrowser(
         serviceIntegrityDimensions: { poToken: token.poToken },
       }),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.info(`[Download] Browser resolver returned HTTP ${res.status}; trying fallback sources.`);
+      return null;
+    }
     const data = await res.json();
     const adaptive = Array.isArray(data?.streamingData?.adaptiveFormats) ? data.streamingData.adaptiveFormats : [];
     const regular = Array.isArray(data?.streamingData?.formats) ? data.streamingData.formats : [];
@@ -87,7 +90,11 @@ async function resolveInBrowser(
       .sort((a: any, b: any) => b.bitrate - a.bitrate);
     if (!alternatives[0]?.url) return null;
     return { ...alternatives[0], source: "browser:innertube", alternatives };
-  } catch {
+  } catch (error) {
+    console.info(
+      "[Download] Browser resolver unavailable; trying fallback sources.",
+      error instanceof Error ? error.message : error,
+    );
     return null;
   }
 }
@@ -129,7 +136,9 @@ export async function resolveStreamUrls(
     throw new Error(msg);
   }
   const data = await res.json();
-  if (!data?.url) throw new Error("no playable stream found");
+  if (!data?.ok || !data?.url) {
+    throw new Error(data?.error || "no playable stream found");
+  }
   return {
     url: data.url,
     mimeType: data.mimeType || (audio ? "audio/mp4" : "video/mp4"),
