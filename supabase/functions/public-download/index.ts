@@ -58,6 +58,21 @@ function json(body: unknown, status = 200) {
   });
 }
 
+function expectedUpstreamError(error: unknown) {
+  const message = error instanceof Error ? error.message : "download failed";
+  const blocked = /blocking this request|bot check|sign in|login_required/i.test(message);
+  return json(
+    {
+      error: message,
+      code: blocked ? "YOUTUBE_TEMPORARILY_BLOCKED" : "MEDIA_UNAVAILABLE",
+      retryable: blocked,
+    },
+    // An upstream media miss is an expected, recoverable result. Returning a
+    // 5xx makes the preview treat it as an Edge Function runtime crash.
+    422,
+  );
+}
+
 async function proxyMedia(request: Request, target: string, name: string, trusted = false) {
   let parsed: URL;
   try {
@@ -202,9 +217,7 @@ Deno.serve(async (req) => {
 
     return await proxyMedia(req, target, name, trusted);
   } catch (error) {
-    return new Response(JSON.stringify({ error: (error as Error)?.message || "download failed" }), {
-      status: 502,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    console.warn("[public-download] media unavailable:", error instanceof Error ? error.message : error);
+    return expectedUpstreamError(error);
   }
 });

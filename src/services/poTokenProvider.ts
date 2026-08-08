@@ -16,7 +16,7 @@ import { buildURL, getHeaders } from "bgutils-js/utils";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "@/integrations/supabase/config";
 
 const REQUEST_KEY = "O43z0dpjhgX20SCx4KAo";
-const CACHE_KEY = "routenet_po_token_v3";
+const CACHE_KEY = "routenet_po_token_v4";
 const DEFAULT_TTL_MS = 6 * 60 * 60 * 1000; // 6h — YouTube's estimate is ~12h
 const ENDPOINT = `${SUPABASE_URL}/functions/v1/public-download`;
 
@@ -143,7 +143,10 @@ async function mint(videoId: string): Promise<PoTokenBundle | null> {
     globalObject: window,
   });
 
-  const botguardResponse = await botguard.snapshot({ webPoSignalOutput });
+  // Cold BotGuard VM startup can exceed the library's 3s default on mobile
+  // devices. Avoid silently losing the token and falling back to a blocked
+  // datacenter request.
+  const botguardResponse = await botguard.snapshot({ webPoSignalOutput }, 10000);
 
   const itRes = await relayFetch(buildURL("GenerateIT", true), {
     method: "POST",
@@ -162,12 +165,13 @@ async function mint(videoId: string): Promise<PoTokenBundle | null> {
   if (!integrityTokenData.integrityToken) throw new Error("no integrity token returned");
 
   const minter = await WebPoMinter.create(integrityTokenData, webPoSignalOutput as any);
-  // Player requests and Google Video Server requests use different content
-  // bindings. Reusing the visitor-bound token for the player is rejected as
-  // LOGIN_REQUIRED / bot-check even though the token itself is well formed.
+  // Current WebPO tokens are content-bound to the requested video. The same
+  // binding is required by both the player request and the `pot` parameter on
+  // the resulting Google Video URL. A visitor-bound media token is treated as
+  // invalid and eventually produces LOGIN_REQUIRED / bot-check responses.
   const [poToken, gvsPoToken] = await Promise.all([
     minter.mintAsWebsafeString(videoId),
-    minter.mintAsWebsafeString(visitorData),
+    minter.mintAsWebsafeString(videoId),
   ]);
   if (!poToken || !gvsPoToken) throw new Error("PO token minting returned nothing");
 
