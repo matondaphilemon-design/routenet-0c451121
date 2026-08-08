@@ -143,7 +143,10 @@ async function mint(videoId: string): Promise<PoTokenBundle | null> {
     globalObject: window,
   });
 
-  const botguardResponse = await botguard.snapshot({ webPoSignalOutput });
+  // Cold BotGuard VM startup can exceed the library's 3s default on mobile
+  // devices. Avoid silently losing the token and falling back to a blocked
+  // datacenter request.
+  const botguardResponse = await botguard.snapshot({ webPoSignalOutput }, 10000);
 
   const itRes = await relayFetch(buildURL("GenerateIT", true), {
     method: "POST",
