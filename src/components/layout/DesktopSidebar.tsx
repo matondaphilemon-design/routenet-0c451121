@@ -81,8 +81,9 @@ export function DesktopSidebar() {
                 onClick={() => navigate(`/user-playlist/${p.id}`)}
                 className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left transition-colors hover:bg-sidebar-accent/60"
               >
-                {p.cover_url
-                  ? <img src={p.cover_url} alt="" className="h-9 w-9 shrink-0 rounded object-cover" />
+                {p.cover_image
+                  ? <img src={p.cover_image} alt="" className="h-9 w-9 shrink-0 rounded object-cover" />
+
                   : <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-secondary"><Music2 className="h-4 w-4 text-muted-foreground" /></span>}
                 <span className="min-w-0">
                   <span className="block truncate text-[13px] font-semibold text-sidebar-foreground">{p.name}</span>
