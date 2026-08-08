@@ -77,21 +77,58 @@ export async function getVisitorData(): Promise<string | null> {
   if (visitorDataCache && Date.now() - visitorDataCache.at < 30 * 60 * 1000) {
     return visitorDataCache.value;
   }
+
+  const ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36";
+  const headers = { "User-Agent": ua, ...(ytCookie() ? { cookie: ytCookie()! } : {}) };
+  const pick = (value?: string | null) => {
+    if (!value) return null;
+    visitorDataCache = { value, at: Date.now() };
+    return value;
+  };
+
+  // 1) InnerTube visitor_id — most reliable from datacenter IPs.
   try {
-    const res = await fetch("https://www.youtube.com/sw.js_data", {
-      headers: { "User-Agent": "Mozilla/5.0", ...(ytCookie() ? { cookie: ytCookie()! } : {}) },
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!res.ok) return null;
-    const text = (await res.text()).replace(/^\)\]\}'/, "");
-    const match = text.match(/"(Cgt[A-Za-z0-9_\-%]{10,})"/);
-    if (!match) return null;
-    visitorDataCache = { value: match[1], at: Date.now() };
-    return match[1];
-  } catch {
-    return null;
-  }
+    const res = await fetch(
+      "https://www.youtube.com/youtubei/v1/visitor_id?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+      {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          context: { client: { clientName: "WEB", clientVersion: "2.20250312.04.00", hl: "en", gl: "US" } },
+        }),
+        signal: AbortSignal.timeout(8000),
+      },
+    );
+    if (res.ok) {
+      const data = await res.json();
+      const value = data?.responseContext?.visitorData;
+      if (typeof value === "string" && value.length > 10) return pick(value);
+    }
+  } catch { /* next source */ }
+
+  // 2) Service-worker bootstrap data.
+  try {
+    const res = await fetch("https://www.youtube.com/sw.js_data", { headers, signal: AbortSignal.timeout(8000) });
+    if (res.ok) {
+      const text = (await res.text()).replace(/^\)\]\}'/, "");
+      const match = text.match(/"(Cgt[A-Za-z0-9_\-%]{10,})"/);
+      if (match?.[1]) return pick(match[1]);
+    }
+  } catch { /* next source */ }
+
+  // 3) Homepage HTML.
+  try {
+    const res = await fetch("https://www.youtube.com/", { headers, signal: AbortSignal.timeout(9000) });
+    if (res.ok) {
+      const html = await res.text();
+      const match = html.match(/"visitorData":"([^"]+)"/) || html.match(/"(Cgt[A-Za-z0-9_\-%]{10,})"/);
+      if (match?.[1]) return pick(match[1].replace(/\\u003d/g, "="));
+    }
+  } catch { /* give up */ }
+
+  return null;
 }
+
 
 /** Scrape the player's signatureTimestamp from base.js (cached for an hour). */
 export async function getSignatureTimestamp(): Promise<number | null> {
